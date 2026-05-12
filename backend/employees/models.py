@@ -1,0 +1,86 @@
+from django.db import models
+
+class Department(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+
+    def __str__(self):
+        return self.name
+
+
+class Employee(models.Model):
+    STATUS_CHOICES = [
+        ('employed', 'Currently Employed'),
+        ('retired', 'Retired'),
+        ('dismissed', 'Dismissed'),
+        ('resigned', 'Resigned'),
+        ('suspended', 'Suspended'),
+    ]
+
+    # Personal Info
+    first_name        = models.CharField(max_length=100)
+    last_name         = models.CharField(max_length=100)
+    middle_name       = models.CharField(max_length=100, blank=True)
+    date_of_birth     = models.DateField()
+    national_id       = models.CharField(max_length=50, unique=True)
+    gender            = models.CharField(max_length=10, choices=[('M','Male'),('F','Female'),('O','Other')])
+    phone_number      = models.CharField(max_length=20)
+    email             = models.EmailField(blank=True)
+    address           = models.TextField()
+    profile_picture   = models.ImageField(upload_to='profile_pics/', blank=True, null=True)
+
+    # Employment Info
+    employee_number   = models.CharField(max_length=30, unique=True)
+    department        = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, related_name='employees')
+    job_title         = models.CharField(max_length=100)
+    date_joined       = models.DateField()
+    employment_type   = models.CharField(max_length=20, choices=[
+                            ('full_time','Full Time'),
+                            ('part_time','Part Time'),
+                            ('contract','Contract'),
+                        ])
+    status            = models.CharField(max_length=20, choices=STATUS_CHOICES, default='employed')
+    status_reason     = models.TextField(blank=True, help_text='Required if retired, dismissed, or suspended')
+    status_changed_at = models.DateTimeField(null=True, blank=True)
+
+    created_at        = models.DateTimeField(auto_now_add=True)
+    updated_at        = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.employee_number} — {self.first_name} {self.last_name}"
+
+
+class AcademicQualification(models.Model):
+    LEVEL_CHOICES = [
+        ('o_level', 'O Level'),
+        ('a_level', 'A Level'),
+        ('diploma', 'Diploma'),
+        ('degree', 'Degree'),
+        ('honours', 'Honours Degree'),
+        ('masters', 'Masters'),
+        ('phd', 'PhD'),
+        ('certificate', 'Certificate'),
+        ('other', 'Other'),
+    ]
+
+    employee      = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='qualifications')
+    level         = models.CharField(max_length=20, choices=LEVEL_CHOICES)
+    institution   = models.CharField(max_length=200)
+    field_of_study = models.CharField(max_length=200)
+    year_obtained = models.PositiveIntegerField()
+    certificate   = models.FileField(upload_to='certificates/', blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.employee} — {self.level} ({self.institution})"
+
+
+class EmployeeStatusLog(models.Model):
+    employee   = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='status_logs')
+    old_status = models.CharField(max_length=20)
+    new_status = models.CharField(max_length=20)
+    reason     = models.TextField()
+    changed_by = models.CharField(max_length=100)  # will link to AdminUser later
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.employee} | {self.old_status} → {self.new_status}"
