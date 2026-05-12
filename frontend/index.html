@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a1a5c" />
+    <title>HRMS JECCA</title>
+
+    <!-- Preload critical assets so they're ready before React boots -->
+    <link rel="preload" href="/bg.jpeg"   as="image" fetchpriority="high" />
+    <link rel="preload" href="/logo.jpeg" as="image" fetchpriority="high" />
+    <link rel="icon" type="image/svg+xml" href="/jecca_logo.jpeg" />
+
+    <!-- Google Fonts preconnect for faster font loading -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Prevent flash of unstyled background -->
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #root {
+        min-height: 100vh;
+        background-color: #0a1a5c;
+      }
+      /* Pre-paint the background before JS loads */
+      body {
+        background-image: url('/bg.jpg');
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+      }
+    </style>
+
+    <!-- Service Worker registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('SW registered:', reg.scope))
+            .catch(err => console.log('SW failed:', err));
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
