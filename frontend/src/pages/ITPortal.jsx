@@ -1,7 +1,14 @@
 import { useState, useEffect, useRef } from "react";
-import { apiFetch, getUser } from "../utils/auth";
+import { apiFetch, getUser, getToken } from "../utils/auth";
+import EmployeesPage from "../components/Itportal/EmployeesPage";
+import AdminsPage   from "../components/Itportal/Adminspage";
 
 const API = "http://127.0.0.1:8000/api";
+
+function authHeaders() {
+  const token = getToken();
+  return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+}
 
 // ── Donut Chart ───────────────────────────────────────────────────────────────
 function DonutChart({ data, size = 150 }) {
@@ -107,6 +114,21 @@ export default function ITPortal() {
   const [stats, setStats]       = useState(null);
   const [modal, setModal]       = useState(null); // "profile" | "password" | "addIT"
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Month navigator for Employees page
+  const now = new Date();
+  const [selectedMonth, setSelectedMonth] = useState({ year: now.getFullYear(), month: now.getMonth() }); // month 0-indexed
+
+  const prevMonth = () => setSelectedMonth(({ year, month }) => month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 });
+  const nextMonth = () => {
+    const cur = new Date();
+    setSelectedMonth(({ year, month }) => {
+      if (year === cur.getFullYear() && month === cur.getMonth()) return { year, month }; // don't go into future
+      return month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 };
+    });
+  };
+  const monthLabel = new Date(selectedMonth.year, selectedMonth.month, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  const isCurrentMonth = selectedMonth.year === now.getFullYear() && selectedMonth.month === now.getMonth();
 
   const showToast = (msg, type = "ok") => setToast({ msg, type });
 
@@ -724,12 +746,33 @@ export default function ITPortal() {
               </svg>
             </button>
 
-            <span className="topbar-title">
-              { page === "dashboard" ? "Dashboard"
-              : page === "admins"    ? "Admin Management"
-              : page === "employees" ? "Employee Records"
-              : page === "profile"   ? "My Profile" : "" }
-            </span>
+            {page === "employees" ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
+                <span className="topbar-title">Employee Records</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 14, background: "#f0f6ff", border: "1.5px solid #d1e3ff", borderRadius: 12, padding: "4px 6px" }}>
+                  <button onClick={prevMonth} style={{ width: 28, height: 28, border: "none", background: "none", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#1557b0" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "#dbeafe"}
+                    onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+                  </button>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13.5, fontWeight: 700, color: "#0a2a5e", minWidth: 130, textAlign: "center" }}>{monthLabel}</span>
+                  <button onClick={nextMonth} disabled={isCurrentMonth} style={{ width: 28, height: 28, border: "none", background: "none", borderRadius: 8, cursor: isCurrentMonth ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: isCurrentMonth ? "#cbd5e1" : "#1557b0" }}
+                    onMouseEnter={e => { if (!isCurrentMonth) e.currentTarget.style.background = "#dbeafe"; }}
+                    onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  </button>
+                </div>
+                {!isCurrentMonth && (
+                  <button onClick={() => setSelectedMonth({ year: now.getFullYear(), month: now.getMonth() })} style={{ padding: "4px 10px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "#64748b", fontWeight: 500 }}>Today</button>
+                )}
+              </div>
+            ) : (
+              <span className="topbar-title">
+                { page === "dashboard" ? "Dashboard"
+                : page === "admins"    ? "Admin Management"
+                : page === "profile"   ? "My Profile" : "" }
+              </span>
+            )}
 
             <div className="topbar-right">
               <TopbarMenu user={user} initials={initials}
@@ -742,8 +785,8 @@ export default function ITPortal() {
           {/* Content */}
           <div className="page">
             {page === "dashboard" && <DashboardPage stats={stats} />}
-            {page === "admins"    && <PlaceholderPage icon="🛡️" title="Admin Management" desc="Manage all system admins — create, edit, deactivate, reset passwords. Coming next." />}
-            {page === "employees" && <PlaceholderPage icon="🗂️" title="Employee Records" desc="Full employee directory with search, filters and profiles. Coming next." />}
+            {page === "admins"    && <AdminsPage showToast={showToast} />}
+            {page === "employees" && <EmployeesPage showToast={showToast} selectedMonth={selectedMonth} />}
             {page === "profile"   && (
               <ProfilePage user={user} initials={initials}
                 onEdit={() => setModal("profile")}

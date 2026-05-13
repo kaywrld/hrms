@@ -53,8 +53,8 @@ class EmployeeListCreateView(generics.ListCreateAPIView):
         return Employee.objects.all().order_by('last_name')
 
     def create(self, request, *args, **kwargs):
-        # Only HRM and HR can add employees
-        if request.user.role not in ('HRM', 'HR'):
+        # IT, HRM, and HR can add employees
+        if request.user.role not in ('IT', 'HRM', 'HR'):
             return Response(
                 {'error': 'You do not have permission to add employees.'},
                 status=status.HTTP_403_FORBIDDEN
@@ -96,7 +96,7 @@ class EmployeeDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class EmployeeStatusChangeView(APIView):
-    permission_classes = (IsHRM,)
+    permission_classes = (CanEditEmployees,)
 
     def post(self, request, pk):
         try:

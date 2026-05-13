@@ -43,6 +43,27 @@ class Employee(models.Model):
     status_reason     = models.TextField(blank=True, help_text='Required if retired, dismissed, or suspended')
     status_changed_at = models.DateTimeField(null=True, blank=True)
 
+    # Next of Kin
+    nok_full_name    = models.CharField(max_length=200, blank=True)
+    nok_relationship = models.CharField(max_length=50, blank=True,
+                           choices=[('spouse','Spouse'),('parent','Parent'),('sibling','Sibling'),
+                                    ('child','Child'),('guardian','Guardian'),('friend','Friend'),('other','Other')])
+    nok_phone        = models.CharField(max_length=20, blank=True)
+    nok_email        = models.EmailField(blank=True)
+    nok_national_id  = models.CharField(max_length=50, blank=True)
+    nok_address      = models.TextField(blank=True)
+
+    # Employment extras
+    contract_start               = models.DateField(null=True, blank=True)
+    contract_end                 = models.DateField(null=True, blank=True)
+    highest_education            = models.CharField(max_length=20, blank=True,
+                                       choices=[('o_level','O Level'),('a_level','A Level'),
+                                                ('certificate','Certificate'),('diploma','Diploma'),
+                                                ('degree','Degree'),('honours','Honours Degree'),
+                                                ('masters','Masters'),('phd','PhD')])
+    cv                           = models.FileField(upload_to='employee_cvs/', blank=True, null=True)
+    highest_education_certificate = models.FileField(upload_to='education_certs/', blank=True, null=True)
+
     created_at        = models.DateTimeField(auto_now_add=True)
     updated_at        = models.DateTimeField(auto_now=True)
 
