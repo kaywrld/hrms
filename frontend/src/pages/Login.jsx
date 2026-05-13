@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const ROLE_ROUTES = {
+  IT:           "/portal/it",
   MD:           "/portal/md",
   HRM:          "/portal/hrm",
   HR:           "/portal/hr",
@@ -15,6 +16,15 @@ export default function Login() {
   const [showForgot, setShowForgot] = useState(false);
   const [showPass, setShowPass]     = useState(false);
   const [bgLoaded, setBgLoaded]     = useState(false);
+
+  // Preload background image via JS Image object — avoids React DOM attribute warning
+  // and works with the service worker cache
+  useEffect(() => {
+    const img = new Image();
+    img.src = "/bg.jpeg";
+    img.onload  = () => setBgLoaded(true);
+    img.onerror = () => setBgLoaded(true); // show overlay even if bg fails
+  }, []);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -31,9 +41,9 @@ export default function Login() {
     setError("");
     try {
       const res = await fetch("http://127.0.0.1:8000/api/auth/login/", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: form.username, password: form.password }),
+        body:    JSON.stringify({ username: form.username, password: form.password }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -69,8 +79,6 @@ export default function Login() {
           background-color: #0a1a5c;
         }
 
-        .hrms-bg-img { display: none; }
-
         .hrms-bg {
           position: fixed;
           inset: 0;
@@ -80,7 +88,7 @@ export default function Login() {
           background-repeat: no-repeat;
           z-index: 0;
           opacity: 0;
-          transition: opacity 0.6s ease;
+          transition: opacity 0.7s ease;
         }
         .hrms-bg.loaded { opacity: 1; }
 
@@ -381,22 +389,7 @@ export default function Login() {
       `}</style>
 
       <div className="hrms-root">
-
-        {/*
-          Hidden img: browser pre-fetches /bg.jpg at high priority and the
-          service worker caches it. The visible background is CSS-driven so
-          there is never a blank-then-paint flash.
-        */}
-        <img
-          className="hrms-bg-img"
-          src="/bg.jpg"
-          alt=""
-          aria-hidden="true"
-          fetchpriority="high"
-          decoding="async"
-          onLoad={() => setBgLoaded(true)}
-        />
-
+        {/* Background — driven by JS Image() preload, no DOM img needed */}
         <div className={`hrms-bg${bgLoaded ? " loaded" : ""}`} />
         <div className="hrms-overlay" />
 
@@ -409,7 +402,6 @@ export default function Login() {
               src="/logo.jpeg"
               alt="JECCA Engineering Logo"
               loading="eager"
-              fetchpriority="high"
               decoding="async"
               onError={e => {
                 e.target.style.display = "none";
@@ -452,7 +444,6 @@ export default function Login() {
 
           {/* Form */}
           <form onSubmit={handleLogin} noValidate>
-
             <div className="field">
               <label htmlFor="username">Username</label>
               <div className="input-wrap">
@@ -490,10 +481,7 @@ export default function Login() {
                   {showPass ? (
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                       stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8
-                        a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4
-                        c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07
-                        a3 3 0 1 1-4.24-4.24"/>
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
                       <line x1="1" y1="1" x2="23" y2="23"/>
                     </svg>
                   ) : (
@@ -552,28 +540,25 @@ export default function Login() {
             <h2>Password Reset</h2>
             <p>
               For security, password resets must be performed by your
-              <strong> IT Manager</strong>. You cannot reset your own password from here.
+              <strong> HR Manager</strong> or the <strong>IT Manager</strong>.
+              You cannot reset your own password from here.
             </p>
 
             <div className="contact-badge">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07
-                  A19.5 19.5 0 0 1 4.15 12 19.79 19.79 0 0 1 1.07 3.4
-                  A2 2 0 0 1 3.05 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81
-                  a2 2 0 0 1-.45 2.11L7.09 8.91a16 16 0 0 0 6 6l1.27-1.27
-                  a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z"/>
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12 19.79 19.79 0 0 1 1.07 3.4A2 2 0 0 1 3.05 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z"/>
               </svg>
-              Contact your IT Manager to reset your password
+              Contact HR Manager or IT Manager
             </div>
 
             <p style={{ fontSize: "13px", color: "#9ca3af" }}>
-              Your IT Manager can reset passwords from within his portal
+              They can reset passwords from within the admin portal
               under <strong>Admin Management</strong>.
             </p>
 
             <button className="btn-close-modal" onClick={() => setShowForgot(false)}>
-              Got it, I'll contact IT
+              Got it, I'll contact HR / IT
             </button>
           </div>
         </div>

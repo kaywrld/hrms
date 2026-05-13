@@ -17,13 +17,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
+        dept = self.user.department
         data['user'] = {
             'id':         self.user.id,
             'username':   self.user.username,
             'full_name':  self.user.full_name,
             'email':      self.user.email,
             'role':       self.user.role,
-            'department': self.user.department.name if self.user.department else None,
+            'department': dept.name if dept is not None else None,  # ← guard against None
         }
         return data
 

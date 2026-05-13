@@ -132,11 +132,16 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME':  timedelta(hours=8),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS':  True,
-    'AUTH_HEADER_TYPES':      ('Bearer',),
+    'ACCESS_TOKEN_LIFETIME':   timedelta(hours=8),
+    'REFRESH_TOKEN_LIFETIME':  timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS':   True,
+    'BLACKLIST_AFTER_ROTATION': True,   # ← required when token_blacklist is installed
+    'AUTH_HEADER_TYPES':       ('Bearer',),
 }
+
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',  # ← required for custom user model
+]
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
