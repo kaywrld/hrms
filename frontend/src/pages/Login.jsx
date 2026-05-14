@@ -16,6 +16,19 @@ export default function Login() {
   const [showForgot, setShowForgot] = useState(false);
   const [showPass, setShowPass]     = useState(false);
   const [bgLoaded, setBgLoaded]     = useState(false);
+  const [infoMsg, setInfoMsg]       = useState("");
+
+  // Check if we were redirected here due to inactivity or session takeover
+  useEffect(() => {
+    const reason = sessionStorage.getItem("logout_reason");
+    if (reason === "inactivity") {
+      setInfoMsg("You were automatically logged out after 10 minutes of inactivity.");
+      sessionStorage.removeItem("logout_reason");
+    } else if (reason === "session_invalidated") {
+      setInfoMsg("Your session was ended because this account was logged in on another device.");
+      sessionStorage.removeItem("logout_reason");
+    }
+  }, []);
 
   // Preload background image via JS Image object — avoids React DOM attribute warning
   // and works with the service worker cache
@@ -47,7 +60,31 @@ export default function Login() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.detail || "Invalid username or password.");
+        // DRF + SimpleJWT surfaces our ValidationError in different shapes
+        // depending on the DRF version.  We check the common places:
+        //   1. data.detail (string or object with .code)
+        //   2. data.non_field_errors[0] (array of strings or objects)
+        let errorMsg = "Invalid username or password.";
+
+        const detail = data?.detail;
+        const nonField = Array.isArray(data?.non_field_errors)
+          ? data.non_field_errors[0]
+          : null;
+
+        const candidate = detail ?? nonField;
+
+        if (candidate) {
+          if (typeof candidate === "string") {
+            errorMsg = candidate;
+          } else if (typeof candidate === "object" && candidate.detail) {
+            // Our custom shape: { detail: "...", code: "already_logged_in" }
+            errorMsg = candidate.detail;
+          } else if (typeof candidate === "object" && candidate.message) {
+            errorMsg = candidate.message;
+          }
+        }
+
+        setError(errorMsg);
         setLoading(false);
         return;
       }
@@ -55,15 +92,18 @@ export default function Login() {
       localStorage.setItem("refresh_token", data.refresh);
       localStorage.setItem("user",          JSON.stringify(data.user));
 
-      // For HOD users: flag first-login so portal can prompt password change.
-      // We key the "already changed" marker by username so it survives logout.
-      if (data.user.role === "HOD" || data.user.role === "HOD_ACCOUNTS") {
-        const changedKey = `dp_pw_changed_${data.user.username}`;
-        if (!localStorage.getItem(changedKey)) {
-          localStorage.setItem("dp_must_change_pw", "true");
-        } else {
-          localStorage.removeItem("dp_must_change_pw");
-        }
+      // must_change_password comes from the server — no localStorage guessing.
+      // This works across all devices because it's DB-backed.
+      if (data.user.must_change_password) {
+        localStorage.setItem("dp_must_change_pw", "true");
+      } else {
+        localStorage.removeItem("dp_must_change_pw");
+      }
+
+      // If another session was active, the server kicked it. Tell the user
+      // via a banner on the portal (not an error — login still succeeded).
+      if (data.user.session_displaced) {
+        sessionStorage.setItem("session_displaced_notice", "true");
       }
 
       const route = ROLE_ROUTES[data.user.role] || "/portal";
@@ -271,6 +311,34 @@ export default function Login() {
           gap: 8px;
           animation: fadeIn 0.2s ease;
         }
+
+        .info-box {
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          border-radius: 10px;
+          padding: 11px 14px;
+          font-size: 13.5px;
+          color: #1d4ed8;
+          margin-bottom: 18px;
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          animation: fadeIn 0.2s ease;
+        }
+
+        .device-error-box {
+          background: #fff7ed;
+          border: 1px solid #fed7aa;
+          border-radius: 10px;
+          padding: 11px 14px;
+          font-size: 13.5px;
+          color: #c2410c;
+          margin-bottom: 18px;
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          animation: fadeIn 0.2s ease;
+        }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
         .btn-login {
@@ -442,16 +510,39 @@ export default function Login() {
           <div className="welcome-title">Welcome to JECCA Engineering</div>
           <div className="welcome-sub">Sign in with your details to continue</div>
 
+          {/* Inactivity logout banner */}
+          {infoMsg && (
+            <div className="info-box" role="status">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+                style={{ flexShrink: 0, marginTop: 1 }}>
+                <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+              </svg>
+              {infoMsg}
+            </div>
+          )}
+
           {/* Error */}
           {error && (
-            <div className="error-box" role="alert">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-                style={{ flexShrink: 0, marginTop: 1 }}>
-                <circle cx="8" cy="8" r="7" stroke="#b91c1c" strokeWidth="1.5"/>
-                <path d="M8 5v3.5M8 11h.01" stroke="#b91c1c" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-              {error}
-            </div>
+            error.includes("another device") ? (
+              <div className="device-error-box" role="alert">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+                  style={{ flexShrink: 0, marginTop: 1 }}>
+                  <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+                </svg>
+                {error}
+              </div>
+            ) : (
+              <div className="error-box" role="alert">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                  style={{ flexShrink: 0, marginTop: 1 }}>
+                  <circle cx="8" cy="8" r="7" stroke="#b91c1c" strokeWidth="1.5"/>
+                  <path d="M8 5v3.5M8 11h.01" stroke="#b91c1c" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                {error}
+              </div>
+            )
           )}
 
           {/* Form */}

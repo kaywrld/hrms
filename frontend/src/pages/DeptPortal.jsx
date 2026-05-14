@@ -8,7 +8,7 @@
 // Dashboard:    Stats cards → Charts (gender, employment status, type) → Workers table
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { apiFetch, getUser, getToken, clearSession } from "../utils/auth";
+import { apiFetch, getUser, getToken, clearSession, performLogout, startInactivityTimer } from "../utils/auth";
 import { DeptPortalProvider, useDeptPortal } from "../context/DeptPortalContext";
 
 const API = "http://127.0.0.1:8000/api";
@@ -135,15 +135,25 @@ function DeptPortalInner() {
   // Admin photo
   const [photoUrl, setPhotoUrl] = useState(null);
 
-  // First-login: show popup only if flagged AND the user hasn't already changed their password.
-  const hasAlreadyChangedPw = () =>
-    localStorage.getItem(`dp_pw_changed_${getUser().username}`) === "true";
-
-  const needsPasswordChange = () =>
-    localStorage.getItem("dp_must_change_pw") === "true" && !hasAlreadyChangedPw();
+  // must_change_password is set by the server at login time and stored in
+  // dp_must_change_pw. Once the user changes their password the backend clears
+  // the flag, so it will be absent on every subsequent login — on any device.
+  const needsPasswordChange = localStorage.getItem("dp_must_change_pw") === "true";
 
   const [showFirstLoginModal, setShowFirstLoginModal] = useState(needsPasswordChange);
   const [mustChangePassword, setMustChangePassword]   = useState(needsPasswordChange);
+
+  // ── Inactivity auto-logout: kicks in after 10 min of no activity ──
+  useEffect(() => startInactivityTimer(), []);
+
+  // ── Session displaced notice: show toast if this login kicked another session ──
+  useEffect(() => {
+    if (sessionStorage.getItem("session_displaced_notice")) {
+      sessionStorage.removeItem("session_displaced_notice");
+      showToast("Your previous session on another device was signed out.", "ok");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const showToast = (msg, type = "ok") => setToast({ msg, type });
 
@@ -171,18 +181,7 @@ function DeptPortalInner() {
     fetchPhoto();
   }, []);
 
-  const handleLogout = async () => {
-    const refresh = localStorage.getItem("refresh_token");
-    try {
-      await fetch(`${API}/auth/logout/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ refresh }),
-      });
-    } catch (_e) { /* best-effort */ }
-    clearSession();
-    window.location.href = "/";
-  };
+  const handleLogout = () => performLogout("manual");
 
   const navItems = [
     { key: "dashboard",   label: "Dashboard",        icon: <GridIcon /> },
@@ -854,9 +853,8 @@ function DeptPortalInner() {
           showToast={showToast}
           user={user}
           onSuccess={() => {
-            // Permanently mark this user as having changed their password.
-            // Keyed by username; clearSession() in auth.js preserves this across all portal logouts.
-            localStorage.setItem(`dp_pw_changed_${user.username}`, "true");
+            // The backend has cleared must_change_password in the DB.
+            // Remove the local flag so the banner stays gone until next login.
             localStorage.removeItem("dp_must_change_pw");
             setMustChangePassword(false);
           }}

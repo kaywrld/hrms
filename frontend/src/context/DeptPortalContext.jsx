@@ -56,6 +56,39 @@ export function DeptPortalProvider({ children }) {
   // Map<dateStr, { records: {empId: record}, fetchedAt: number }>
   const attendanceCache = useRef(new Map());
   const [attendance, setAttendance] = useState(null); // flat list for stats
+  const fetchingAllAtt = useRef(false);
+
+  // Fetch ALL attendance records once on mount so the dashboard's
+  // "Days Attended" column is populated immediately without visiting
+  // the Attendance page first.
+  const loadAllAttendance = useCallback(async () => {
+    if (fetchingAllAtt.current) return;
+    fetchingAllAtt.current = true;
+    try {
+      const res  = await apiFetch(`${API}/attendance/`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : (data.results || []);
+
+      // Populate the date cache so per-date fetches are instant on first visit
+      const byDate = {};
+      list.forEach(r => {
+        if (!byDate[r.date]) byDate[r.date] = {};
+        byDate[r.date][r.employee] = r;
+      });
+      const now = Date.now();
+      Object.entries(byDate).forEach(([date, records]) => {
+        // Only seed; don't overwrite entries already fetched by the Attendance page
+        if (!attendanceCache.current.has(date)) {
+          attendanceCache.current.set(date, { records, fetchedAt: now });
+        }
+      });
+
+      setAttendance(list);
+    } catch { /* non-fatal \u2014 dashboard will show 0 until corrected */ }
+  }, []);
+
+  useEffect(() => { loadAllAttendance(); }, [loadAllAttendance]);
 
   const getAttendanceForDate = useCallback(async (dateStr) => {
     const cached = attendanceCache.current.get(dateStr);

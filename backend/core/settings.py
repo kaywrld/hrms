@@ -132,8 +132,11 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME':   timedelta(hours=8),
-    'REFRESH_TOKEN_LIFETIME':  timedelta(days=1),
+    # Access token lives exactly 10 minutes — matches the frontend inactivity timeout.
+    # If a user is active, the frontend silently refreshes it before expiry.
+    # If idle for 10 min, the token expires and they're logged out automatically.
+    'ACCESS_TOKEN_LIFETIME':   timedelta(minutes=10),
+    'REFRESH_TOKEN_LIFETIME':  timedelta(hours=8),
     'ROTATE_REFRESH_TOKENS':   True,
     'BLACKLIST_AFTER_ROTATION': True,   # ← required when token_blacklist is installed
     'AUTH_HEADER_TYPES':       ('Bearer',),

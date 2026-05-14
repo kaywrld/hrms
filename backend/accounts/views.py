@@ -2,8 +2,9 @@ from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from core.permissions import CanManageAdmins, CanDeleteData
 from .models import AdminUser, LoginActivity
 from .serializers import CustomTokenObtainPairSerializer, AdminUserSerializer, LoginActivitySerializer
@@ -22,10 +23,18 @@ class LoginView(TokenObtainPairView):
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         if response.status_code == 200:
-            # Record the login activity
             try:
                 username = request.data.get('username', '')
                 user = AdminUser.objects.get(username=username)
+
+                # Decode the refresh token to extract its JTI and store it
+                # as the user's single active session identifier.
+                from rest_framework_simplejwt.tokens import RefreshToken as RT
+                refresh_obj = RT(response.data['refresh'])
+                jti = refresh_obj['jti']
+                user.active_session_jti = jti
+                user.save(update_fields=['active_session_jti'])
+
                 LoginActivity.objects.create(
                     admin=user,
                     event='login',
@@ -42,19 +51,77 @@ class LogoutView(APIView):
 
     def post(self, request):
         try:
-            # Record logout activity
             LoginActivity.objects.create(
                 admin=request.user,
                 event='logout',
                 ip_address=get_client_ip(request),
                 user_agent=request.META.get('HTTP_USER_AGENT', '')[:400],
             )
-            refresh_token = request.data['refresh']
-            token = RefreshToken(refresh_token)
-            token.blacklist()
-            return Response({'message': 'Logged out successfully'}, status=status.HTTP_200_OK)
+            refresh_token = request.data.get('refresh')
+            if refresh_token:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
         except Exception:
-            return Response({'error': 'Invalid token'}, status=status.HTTP_400_BAD_REQUEST)
+            pass
+        finally:
+            # Always clear the session JTI regardless of what happened above
+            request.user.active_session_jti = None
+            request.user.save(update_fields=['active_session_jti'])
+
+        return Response({'message': 'Logged out successfully'}, status=status.HTTP_200_OK)
+
+
+class ValidatedTokenRefreshView(TokenRefreshView):
+    """
+    Custom refresh endpoint that rejects tokens whose JTI no longer matches
+    the user's stored active_session_jti.  This closes the gap where a user
+    who was forced out (e.g. new login from another device set a new JTI) could
+    silently keep refreshing their stale token indefinitely.
+    """
+
+    def post(self, request, *args, **kwargs):
+        raw_refresh = request.data.get('refresh', '')
+        if not raw_refresh:
+            return Response({'error': 'refresh token is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Decode without yet validating the full chain — we only need the JTI & user_id
+        try:
+            incoming = RefreshToken(raw_refresh)
+            incoming_jti     = incoming['jti']
+            incoming_user_id = incoming['user_id']
+        except (TokenError, InvalidToken, KeyError):
+            return Response({'error': 'Invalid or expired refresh token.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Reject if the stored JTI no longer matches (session was superseded or cleared)
+        try:
+            user = AdminUser.objects.get(pk=incoming_user_id)
+        except AdminUser.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if user.active_session_jti != incoming_jti:
+            return Response(
+                {
+                    'error': 'Session is no longer valid. Please log in again.',
+                    'code':  'session_invalidated',
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # All good — let SimpleJWT do the real rotation
+        response = super().post(request, *args, **kwargs)
+
+        # After rotation the old JTI is blacklisted and a new refresh token is
+        # issued.  Update active_session_jti to the new token's JTI so the next
+        # refresh still passes the check.
+        if response.status_code == 200 and 'refresh' in response.data:
+            try:
+                new_token = RefreshToken(response.data['refresh'])
+                user.active_session_jti = new_token['jti']
+                user.save(update_fields=['active_session_jti'])
+            except (TokenError, KeyError):
+                pass  # Non-fatal — token is still valid for this request
+
+        return response
 
 
 class MeView(APIView):
@@ -156,6 +223,7 @@ class ChangeOwnPasswordView(APIView):
             return Response({'error': 'New password must be different from your current password.'}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_password(new_password)
+        user.must_change_password = False
         user.save()
         return Response({'message': 'Password changed successfully. Please log in again.'}, status=status.HTTP_200_OK)
 

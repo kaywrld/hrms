@@ -37,9 +37,19 @@ class AdminUser(AbstractBaseUser, PermissionsMixin):
                     null=True, blank=True,
                     help_text='Required for HOD roles'
                   )
-    is_active   = models.BooleanField(default=True)
-    is_staff    = models.BooleanField(default=False)
-    created_at  = models.DateTimeField(auto_now_add=True)
+    is_active            = models.BooleanField(default=True)
+    is_staff             = models.BooleanField(default=False)
+    created_at           = models.DateTimeField(auto_now_add=True)
+    # Stores the JTI of the currently active refresh token.
+    # When a new login succeeds this is updated; any prior session becomes invalid.
+    active_session_jti   = models.CharField(
+        max_length=255, blank=True, null=True,
+        help_text="JTI of the currently active refresh token (single-device enforcement)."
+    )
+    must_change_password = models.BooleanField(
+        default=False,
+        help_text="Force the user to change their password on next login."
+    )
 
     # Link to the employee record this admin was created from (optional)
     employee    = models.ForeignKey(

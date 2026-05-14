@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { apiFetch, getUser, getToken, clearSession } from "../utils/auth";
+import { apiFetch, getUser, getToken, clearSession, performLogout, startInactivityTimer } from "../utils/auth";
 import EmployeesPage from "../components/Itportal/EmployeesPage";
 import AdminsPage   from "../components/Itportal/Adminspage";
 import { ITPortalProvider, useITPortal } from "../context/ITPortalContext";
@@ -124,6 +124,18 @@ function ITPortalInner() {
   const [modal, setModal]       = useState(null); // "profile" | "password" | "addIT"
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // ── Inactivity auto-logout: kicks in after 10 min of no activity ──
+  useEffect(() => startInactivityTimer(), []);
+
+  // ── Session displaced notice: show toast if this login kicked another session ──
+  useEffect(() => {
+    if (sessionStorage.getItem("session_displaced_notice")) {
+      sessionStorage.removeItem("session_displaced_notice");
+      showToast("Your previous session on another device was signed out.", "ok");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Month navigator for Employees page
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState({ year: now.getFullYear(), month: now.getMonth() }); // month 0-indexed
@@ -141,18 +153,7 @@ function ITPortalInner() {
 
   const showToast = (msg, type = "ok") => setToast({ msg, type });
 
-  const handleLogout = async () => {
-    const refresh = localStorage.getItem("refresh_token");
-    try {
-      await fetch(`${API}/auth/logout/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ refresh }),
-      });
-    } catch (_e) { /* best-effort — clear session regardless */ }
-    clearSession();
-    window.location.href = "/";
-  };
+  const handleLogout = () => performLogout("manual");
 
   const navItems = [
     { key: "dashboard",    label: "Dashboard",     icon: <GridIcon /> },
