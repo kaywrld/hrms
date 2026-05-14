@@ -24,13 +24,15 @@ class AttendanceRecord(models.Model):
         ('leave',    'On Leave'),
     ]
 
-    employee    = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='attendance')
-    date        = models.DateField()
-    shift       = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True)
-    status      = models.CharField(max_length=20, choices=STATUS_CHOICES)
-    marked_by   = models.CharField(max_length=100)  # AdminUser username
-    notes       = models.TextField(blank=True)
-    created_at  = models.DateTimeField(auto_now_add=True)
+    employee       = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='attendance')
+    date           = models.DateField()
+    shift          = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True)
+    status         = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    marked_by      = models.CharField(max_length=100)  # AdminUser username
+    notes          = models.TextField(blank=True)
+    arrival_time   = models.CharField(max_length=10, blank=True, help_text='Time of arrival for late arrivals, e.g. 09:35')
+    absence_reason = models.CharField(max_length=255, blank=True, help_text='Reason for absence')
+    created_at     = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ('employee', 'date')  # one record per employee per day

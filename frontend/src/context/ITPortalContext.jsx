@@ -51,13 +51,13 @@ export function ITPortalProvider({ children }) {
   useEffect(() => {
     load("employees",   "/employees/");
     load("admins",      "/auth/admins/");
-    load("departments", "/departments/");
+    load("departments", "/employees/departments/");
   }, [load]);
 
   // ── Public invalidation helpers (call after CUD operations) ──
   const refetchEmployees   = useCallback(() => { setEmployees(null);   fetching.current.employees   = false; load("employees",   "/employees/");   }, [load]);
   const refetchAdmins      = useCallback(() => { setAdmins(null);      fetching.current.admins      = false; load("admins",      "/auth/admins/"); }, [load]);
-  const refetchDepartments = useCallback(() => { setDepartments(null); fetching.current.departments = false; load("departments", "/departments/"); }, [load]);
+  const refetchDepartments = useCallback(() => { setDepartments(null); fetching.current.departments = false; load("departments", "/employees/departments/"); }, [load]);
 
   // ── Optimistic helpers (instant UI update, no re-fetch needed) ──
   const addEmployee    = useCallback(emp  => setEmployees(prev => prev ? [emp,  ...prev] : [emp]),  []);

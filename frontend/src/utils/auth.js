@@ -6,6 +6,20 @@ export const getUser  = () => {
   catch { return {}; }
 };
 
+// Clears session data while preserving per-user markers that must survive
+// across logouts. Specifically, dp_pw_changed_<username> tracks whether a
+// HOD has already changed their first-login password so the prompt never
+// re-appears — even when an IT or HRM admin logs out on the same browser.
+export const clearSession = () => {
+  const preserved = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith("dp_pw_changed_")) preserved[k] = localStorage.getItem(k);
+  }
+  localStorage.clear();
+  Object.entries(preserved).forEach(([k, v]) => localStorage.setItem(k, v));
+};
+
 // Call this at the top of every portal page
 export const requireAuth = (requiredRole = null) => {
   const token = getToken();
@@ -37,7 +51,7 @@ export const refreshToken = async () => {
     localStorage.setItem("access_token", data.access);
     return data.access;
   } catch {
-    localStorage.clear();
+    clearSession();
     window.location.href = "/";
   }
 };
@@ -62,7 +76,7 @@ export const apiFetch = async (url, options = {}) => {
 
   // Still 401 after refresh → kick to login
   if (res.status === 401) {
-    localStorage.clear();
+    clearSession();
     window.location.href = "/";
   }
 

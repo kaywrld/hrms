@@ -54,6 +54,18 @@ export default function Login() {
       localStorage.setItem("access_token",  data.access);
       localStorage.setItem("refresh_token", data.refresh);
       localStorage.setItem("user",          JSON.stringify(data.user));
+
+      // For HOD users: flag first-login so portal can prompt password change.
+      // We key the "already changed" marker by username so it survives logout.
+      if (data.user.role === "HOD" || data.user.role === "HOD_ACCOUNTS") {
+        const changedKey = `dp_pw_changed_${data.user.username}`;
+        if (!localStorage.getItem(changedKey)) {
+          localStorage.setItem("dp_must_change_pw", "true");
+        } else {
+          localStorage.removeItem("dp_must_change_pw");
+        }
+      }
+
       const route = ROLE_ROUTES[data.user.role] || "/portal";
       window.location.href = route;
     } catch {

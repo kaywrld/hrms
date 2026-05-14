@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { apiFetch, getUser, getToken } from "../utils/auth";
+import { apiFetch, getUser, getToken, clearSession } from "../utils/auth";
 import EmployeesPage from "../components/Itportal/EmployeesPage";
 import AdminsPage   from "../components/Itportal/Adminspage";
 import { ITPortalProvider, useITPortal } from "../context/ITPortalContext";
@@ -150,7 +150,7 @@ function ITPortalInner() {
         body: JSON.stringify({ refresh }),
       });
     } catch (_e) { /* best-effort — clear session regardless */ }
-    localStorage.clear();
+    clearSession();
     window.location.href = "/";
   };
 
@@ -1029,7 +1029,7 @@ function ChangePasswordModal({ onClose, showToast }) {
       const d = await res.json();
       if (!res.ok){showToast(d.error||"Failed.","err");return;}
       showToast("Password changed! Signing you out…");
-      setTimeout(()=>{localStorage.clear();window.location.href="/";},1800);
+      setTimeout(()=>{clearSession();window.location.href="/";},1800);
       onClose();
     } catch{showToast("Server error.","err");}
     finally{setBusy(false);}
