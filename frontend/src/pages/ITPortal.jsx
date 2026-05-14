@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { apiFetch, getUser, getToken } from "../utils/auth";
 import EmployeesPage from "../components/Itportal/EmployeesPage";
 import AdminsPage   from "../components/Itportal/Adminspage";
+import { ITPortalProvider, useITPortal } from "../context/ITPortalContext";
 
 const API = "http://127.0.0.1:8000/api";
 
@@ -107,11 +108,19 @@ function Toast({ msg, type, onDone }) {
 
 // ═════════════════════════════════════════════════════════════════════════════
 export default function ITPortal() {
+  return (
+    <ITPortalProvider>
+      <ITPortalInner />
+    </ITPortalProvider>
+  );
+}
+
+function ITPortalInner() {
+  const { stats } = useITPortal();
   const user = getUser();
   const [page, setPage]         = useState("dashboard");
   const [sideOpen, setSideOpen] = useState(true);
   const [toast, setToast]       = useState(null);
-  const [stats, setStats]       = useState(null);
   const [modal, setModal]       = useState(null); // "profile" | "password" | "addIT"
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -132,41 +141,27 @@ export default function ITPortal() {
 
   const showToast = (msg, type = "ok") => setToast({ msg, type });
 
-  useEffect(() => {
-    if (page !== "dashboard") return;
-    Promise.all([
-      fetch(`${API}/employees/`,  { headers: authHeaders() }).then(r => r.json()),
-      fetch(`${API}/auth/admins/`,{ headers: authHeaders() }).then(r => r.json()),
-    ]).then(([emps, admins]) => {
-      const el = Array.isArray(emps)   ? emps   : emps.results   || [];
-      const al = Array.isArray(admins) ? admins : admins.results || [];
-      const byDept = {}, statusCount = {};
-      el.forEach(e => {
-        const d = e.department_name || "Unknown";
-        byDept[d] = (byDept[d] || 0) + 1;
-        statusCount[e.status] = (statusCount[e.status] || 0) + 1;
+  const handleLogout = async () => {
+    const refresh = localStorage.getItem("refresh_token");
+    try {
+      await fetch(`${API}/auth/logout/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ refresh }),
       });
-      setStats({
-        total: el.length,
-        employed: el.filter(e => e.status === "employed").length,
-        admins: al.length,
-        depts: Object.keys(byDept).length,
-        male: el.filter(e => e.gender === "M").length,
-        female: el.filter(e => e.gender === "F").length,
-        other: el.filter(e => e.gender === "O").length,
-        byDept: Object.entries(byDept).slice(0, 7),
-        statusCount,
-      });
-    }).catch(() => showToast("Failed to load statistics", "err"));
-  }, [page]);
+    } catch (_e) { /* best-effort — clear session regardless */ }
+    localStorage.clear();
+    window.location.href = "/";
+  };
 
   const navItems = [
-    { key: "dashboard", label: "Dashboard", icon: <GridIcon /> },
-    { key: "divider1", divider: true, label: "USERS" },
-    { key: "admins",    label: "Admins",    icon: <ShieldIcon /> },
-    { key: "employees", label: "Employees", icon: <UsersIcon /> },
-    { key: "divider2", divider: true, label: "SYSTEM" },
-    { key: "profile",   label: "My Profile", icon: <UserIcon /> },
+    { key: "dashboard",    label: "Dashboard",     icon: <GridIcon /> },
+    { key: "divider1",     divider: true, label: "USERS" },
+    { key: "admins",       label: "Admins",        icon: <ShieldIcon /> },
+    { key: "employees",    label: "Employees",     icon: <UsersIcon /> },
+    { key: "divider2",     divider: true, label: "SYSTEM" },
+    { key: "loginhistory", label: "Login History", icon: <ClockIcon /> },
+    { key: "profile",      label: "My Profile",    icon: <UserIcon /> },
   ];
 
   const initials = (user.full_name || "IT").split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase();
@@ -720,7 +715,7 @@ export default function ITPortal() {
 
           {/* Footer */}
           <div className="sb-footer">
-            <button className="sb-logout" onClick={() => { localStorage.clear(); window.location.href = "/"; }}>
+            <button className="sb-logout" onClick={handleLogout}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
                 <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
@@ -768,9 +763,10 @@ export default function ITPortal() {
               </div>
             ) : (
               <span className="topbar-title">
-                { page === "dashboard" ? "Dashboard"
-                : page === "admins"    ? "Admin Management"
-                : page === "profile"   ? "My Profile" : "" }
+                { page === "dashboard"    ? "Dashboard"
+                : page === "admins"       ? "Admin Management"
+                : page === "loginhistory" ? "Login History"
+                : page === "profile"      ? "My Profile" : "" }
               </span>
             )}
 
@@ -778,16 +774,18 @@ export default function ITPortal() {
               <TopbarMenu user={user} initials={initials}
                 onProfile={() => setModal("profile")}
                 onPassword={() => setModal("password")}
+                onLogout={handleLogout}
               />
             </div>
           </header>
 
           {/* Content */}
           <div className="page">
-            {page === "dashboard" && <DashboardPage stats={stats} />}
-            {page === "admins"    && <AdminsPage showToast={showToast} />}
-            {page === "employees" && <EmployeesPage showToast={showToast} selectedMonth={selectedMonth} />}
-            {page === "profile"   && (
+            {page === "dashboard"    && <DashboardPage stats={stats} />}
+            {page === "admins"       && <AdminsPage showToast={showToast} />}
+            {page === "employees"    && <EmployeesPage showToast={showToast} selectedMonth={selectedMonth} />}
+            {page === "loginhistory" && <LoginHistoryPage showToast={showToast} />}
+            {page === "profile"      && (
               <ProfilePage user={user} initials={initials}
                 onEdit={() => setModal("profile")}
                 onPassword={() => setModal("password")}
@@ -809,7 +807,7 @@ export default function ITPortal() {
 }
 
 // ── Topbar Menu ───────────────────────────────────────────────────────────────
-function TopbarMenu({ user, initials, onProfile, onPassword }) {
+function TopbarMenu({ user, initials, onProfile, onPassword, onLogout }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
   useEffect(() => {
@@ -833,7 +831,7 @@ function TopbarMenu({ user, initials, onProfile, onPassword }) {
             <LockIcon size={15}/> Change Password
           </button>
           <div className="menu-hr"/>
-          <button className="top-menu-item red" onClick={() => { localStorage.clear(); window.location.href="/"; }}>
+          <button className="top-menu-item red" onClick={onLogout}>
             <LogoutIcon size={15}/> Sign Out
           </button>
         </div>
@@ -995,7 +993,7 @@ function EditProfileModal({ user, onClose, showToast }) {
       const updated = await res.json();
       localStorage.setItem("user", JSON.stringify({...user,...updated}));
       showToast("Profile updated."); onClose();
-    } catch { showToast("Failed to update profile.","err"); }
+    } catch (_e) { showToast("Failed to update profile.","err"); }
     finally { setBusy(false); }
   };
   return (
@@ -1134,3 +1132,225 @@ const LockIcon     = ({size=18,color="currentColor"})=><svg width={size} height=
 const CheckIcon    = ({size=18,color="currentColor"})=><svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>;
 const BuildingIcon = ({size=18,color="currentColor"})=><svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 22V12h6v10M9 7h1m4 0h1M9 11h1m4 0h1"/></svg>;
 const LogoutIcon   = ({size=18,color="currentColor"})=><svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>;
+const ClockIcon    = ({size=18,color="currentColor"})=><svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
+
+// ── Login History Page ─────────────────────────────────────────────────────────
+function LoginHistoryPage({ showToast }) {
+  const { admins: contextAdmins, loading: ctxLoading, errors: ctxErrors } = useITPortal();
+  const admins   = contextAdmins || [];
+  const loading  = ctxLoading.admins;
+  const [selected,  setSelected]  = useState(null);
+  const [activity,  setActivity]  = useState(null);
+  const [actLoading,setActLoading]= useState(false);
+  const [search,    setSearch]    = useState("");
+
+  // Show error from context if admins failed to load
+  useEffect(() => {
+    if (ctxErrors.admins) showToast("Failed to load admins.", "err");
+  }, [ctxErrors.admins]);
+
+  const loadActivity = (adm) => {
+    setSelected(adm);
+    setActivity(null);
+    setActLoading(true);
+    fetch(`${API}/auth/admins/${adm.id}/activity/`, { headers: authHeaders() })
+      .then(r => r.json())
+      .then(d => setActivity(Array.isArray(d) ? d : []))
+      .catch(() => { showToast("Failed to load activity.", "err"); setActivity([]); })
+      .finally(() => setActLoading(false));
+  };
+
+  const filtered = admins.filter(a => {
+    const q = search.toLowerCase();
+    return !q || [a.full_name, a.username, a.role].some(v => (v||"").toLowerCase().includes(q));
+  });
+
+  function fmtDT(iso) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString("en-ZW", { dateStyle: "medium", timeStyle: "short" });
+  }
+  function buildSessions(acts) {
+    const sessions = [];
+    if (!acts || !acts.length) return sessions;
+    const chrono = [...acts].reverse();
+    let openLogin = null;
+    for (const a of chrono) {
+      if (a.event === "login") { openLogin = a; }
+      else if (a.event === "logout" && openLogin) {
+        const dur = Math.round((new Date(a.timestamp) - new Date(openLogin.timestamp)) / 60000);
+        sessions.unshift({ login: openLogin, logout: a, duration: dur });
+        openLogin = null;
+      }
+    }
+    if (openLogin) sessions.unshift({ login: openLogin, logout: null, duration: null });
+    return sessions;
+  }
+  function fmtDur(mins) {
+    if (mins === null || mins === undefined) return "Active";
+    if (mins < 1) return "< 1m";
+    if (mins < 60) return `${mins}m`;
+    return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  }
+
+  const sessions = buildSessions(activity);
+  const rc = selected ? ({IT:"#1557b0",MD:"#9333ea",HRM:"#059669",HR:"#16a34a",HOD:"#d97706",HOD_ACCOUNTS:"#dc2626"}[selected.role] || "#64748b") : "#64748b";
+
+  const ROLES_MAP = {IT:"IT Manager",MD:"Managing Director",HRM:"HR Manager",HR:"Standard HR",HOD:"Head of Dept",HOD_ACCOUNTS:"Accounts HOD"};
+
+  return (
+    <div style={{ display: "flex", gap: 20, height: "calc(100vh - 120px)", minHeight: 500 }}>
+      {/* Left panel: admin list */}
+      <div style={{ width: 280, flexShrink: 0, background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid #f1f5f9" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: "#94a3b8", marginBottom: 10 }}>Select Admin</div>
+          <div style={{ position: "relative" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round"
+              style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search admins…"
+              style={{ width: "100%", padding: "8px 10px 8px 30px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", background: "#fafbff" }}
+              onFocus={e => { e.target.style.borderColor = "#1557b0"; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
+              onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.boxShadow = "none"; }}
+            />
+          </div>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {loading ? (
+            <div style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
+              <div style={{ width: 24, height: 24, border: "3px solid #e8edf8", borderTopColor: "#1557b0", borderRadius: "50%", animation: "sp 0.75s linear infinite", margin: "0 auto 10px" }} />
+              Loading…
+            </div>
+          ) : filtered.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8", fontSize: 13 }}>No admins found</div>
+          ) : filtered.map(adm => {
+            const isSelected = selected?.id === adm.id;
+            return (
+              <div key={adm.id} onClick={() => loadActivity(adm)} style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "11px 14px",
+                borderBottom: "1px solid #f8faff", cursor: "pointer",
+                background: isSelected ? "#eff6ff" : "",
+                borderLeft: isSelected ? "3px solid #1557b0" : "3px solid transparent",
+                transition: "all 0.12s",
+              }}
+                onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "#f8faff"; }}
+                onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ""; }}
+              >
+                <div style={{
+                  width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+                  background: `linear-gradient(135deg,#0e3d82,#1a6fd4)`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, fontWeight: 700, color: "#fff",
+                }}>
+                  {(adm.full_name||"?").split(" ").map(n=>n[0]).slice(0,2).join("").toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{adm.full_name}</div>
+                  <div style={{ fontSize: 11, color: "#94a3b8" }}>{ROLES_MAP[adm.role] || adm.role}</div>
+                </div>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: adm.is_active ? "#059669" : "#dc2626", flexShrink: 0 }} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Right panel: session history */}
+      <div style={{ flex: 1, background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {!selected ? (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#94a3b8", gap: 12 }}>
+            <ClockIcon size={40} color="#c7d8f0" />
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 18, color: "#64748b" }}>Select an admin</div>
+            <div style={{ fontSize: 13 }}>Choose an admin from the left to view their login sessions.</div>
+          </div>
+        ) : (
+          <>
+            {/* Header */}
+            <div style={{ padding: "18px 22px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 11, flexShrink: 0,
+                background: `linear-gradient(135deg,#0e3d82,#1a6fd4)`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 15, fontWeight: 700, color: "#fff",
+              }}>
+                {(selected.full_name||"?").split(" ").map(n=>n[0]).slice(0,2).join("").toUpperCase()}
+              </div>
+              <div>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, color: "#0a2a5e" }}>{selected.full_name}</div>
+                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>@{selected.username} · {ROLES_MAP[selected.role] || selected.role}</div>
+              </div>
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: "#94a3b8" }}>
+                  {actLoading ? "Loading…" : `${sessions.length} session${sessions.length !== 1 ? "s" : ""}`}
+                </span>
+              </div>
+            </div>
+
+            {/* Sessions list */}
+            <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+              {actLoading ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8" }}>
+                  <div style={{ width: 28, height: 28, border: "3px solid #e8edf8", borderTopColor: "#1557b0", borderRadius: "50%", animation: "sp 0.75s linear infinite", margin: "0 auto 12px" }} />
+                  Loading sessions…
+                </div>
+              ) : sessions.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8" }}>
+                  <div style={{ fontSize: 30, marginBottom: 10 }}>📋</div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: "#64748b", marginBottom: 6 }}>No login sessions recorded</div>
+                  <div style={{ fontSize: 13 }}>This admin has not logged in yet.</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {sessions.map((s, i) => {
+                    const isActive = !s.logout;
+                    return (
+                      <div key={i} style={{
+                        background: "#f8faff", borderRadius: 12, padding: "16px 18px",
+                        border: "1px solid #e2e8f0",
+                        borderLeft: `4px solid ${isActive ? "#059669" : "#1557b0"}`,
+                      }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                              <div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#059669" }} />
+                                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "#64748b" }}>Login</span>
+                                </div>
+                                <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a" }}>{fmtDT(s.login.timestamp)}</div>
+                              </div>
+                              <div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? "#e2e8f0" : "#dc2626" }} />
+                                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "#64748b" }}>Logout</span>
+                                </div>
+                                {isActive
+                                  ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#ecfdf5", color: "#059669", borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700 }}>● Currently Online</span>
+                                  : <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a" }}>{fmtDT(s.logout.timestamp)}</div>
+                                }
+                              </div>
+                            </div>
+                          </div>
+                          <span style={{
+                            padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0,
+                            background: isActive ? "#ecfdf5" : "#eff6ff",
+                            color: isActive ? "#059669" : "#1557b0",
+                          }}>{fmtDur(s.duration)}</span>
+                        </div>
+                        {s.login.ip_address && (
+                          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10, paddingTop: 10, borderTop: "1px solid #f1f5f9" }}>
+                            IP: {s.login.ip_address}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

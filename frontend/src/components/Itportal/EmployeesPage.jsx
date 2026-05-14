@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useITPortal } from "../../context/ITPortalContext";
 
 const API = "http://127.0.0.1:8000/api";
 
@@ -666,10 +667,12 @@ function EmployeeDetail({ employee, departments, onClose, onEdit, showToast, onR
         showToast(d.error || "Failed to update status.", "err");
         return;
       }
-      setLocalEmployee(e => ({ ...e, status: newStatus, status_reason: statusReason }));
+      const updated = { ...localEmployee, status: newStatus, status_reason: statusReason };
+      setLocalEmployee(updated);
       setPendingStatus(null);
       setStatusReason("");
       showToast(`Status updated to ${newStatus}.`);
+      // Propagate to context so the table reflects the change immediately
       onRefresh && onRefresh();
     } catch { showToast("Server error.", "err"); }
     finally { setStatusBusy(false); }
@@ -1348,9 +1351,28 @@ export default function EmployeesPage({ showToast, selectedMonth }) {
   // Default to current month if not provided
   const _now = new Date();
   const activeMonth = selectedMonth || { year: _now.getFullYear(), month: _now.getMonth() };
-  const [employees, setEmployees] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [loading, setLoading] = useState(true);
+
+  // ── Pull from context instead of fetching locally ──
+  const {
+    employees: ctxEmployees,
+    departments: ctxDepartments,
+    loading: ctxLoading,
+    errors: ctxErrors,
+    refetchEmployees,
+    addEmployee,
+    updateEmployee,
+  } = useITPortal();
+
+  const employees   = ctxEmployees   || [];
+  const departments = ctxDepartments || [];
+  const loading     = ctxLoading.employees || ctxLoading.departments;
+
+  // Show context errors once
+  useEffect(() => {
+    if (ctxErrors.employees)   showToast("Failed to load employees.", "err");
+    if (ctxErrors.departments) showToast("Failed to load departments.", "err");
+  }, [ctxErrors.employees, ctxErrors.departments]);
+
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -1359,23 +1381,6 @@ export default function EmployeesPage({ showToast, selectedMonth }) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [downloadMenu, setDownloadMenu] = useState(false);
   const dlRef = useRef();
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [empR, deptR] = await Promise.all([
-        fetch(`${API}/employees/?page_size=500`, { headers: authHeaders() }),
-        fetch(`${API}/employees/departments/`, { headers: authHeaders() }),
-      ]);
-      const empData = await empR.json();
-      const deptData = await deptR.json();
-      setEmployees(Array.isArray(empData) ? empData : empData.results || []);
-      setDepartments(Array.isArray(deptData) ? deptData : deptData.results || []);
-    } catch { showToast("Failed to load employees.", "err"); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   // Close download menu on outside click
   useEffect(() => {
@@ -1686,7 +1691,13 @@ export default function EmployeesPage({ showToast, selectedMonth }) {
           departments={departments}
           existingNumbers={existingNumbers}
           onClose={() => setModal(null)}
-          onSave={() => load()}
+          onSave={(savedEmp) => {
+            if (modal === "edit") {
+              updateEmployee(savedEmp);
+            } else {
+              addEmployee(savedEmp);
+            }
+          }}
           showToast={showToast}
         />
       )}
@@ -1698,7 +1709,7 @@ export default function EmployeesPage({ showToast, selectedMonth }) {
           onClose={() => setDetailOpen(false)}
           onEdit={() => { setDetailOpen(false); setModal("edit"); }}
           showToast={showToast}
-          onRefresh={load}
+          onRefresh={refetchEmployees}
           activeMonth={activeMonth}
         />
       )}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useITPortal } from "../../context/ITPortalContext";
 
 const API = "http://127.0.0.1:8000/api";
 
@@ -193,33 +194,19 @@ function EmployeePicker({ employees, onSelect }) {
 }
 
 // ── Add Admin Modal (multi-step) ──────────────────────────────────────────────
-function AddAdminModal({ onClose, onSave, showToast }) {
-  const [step, setStep]         = useState(1); // 1=pick employee, 2=fill details
-  const [employees, setEmployees] = useState([]);
-  const [loadingEmps, setLoadingEmps] = useState(true);
+// Now receives employees + departments from context via props — no local fetching
+function AddAdminModal({ employees, departments, onClose, onSave, showToast }) {
+  const [step, setStep]           = useState(1);
   const [selectedEmp, setSelectedEmp] = useState(null);
-  const [departments, setDepartments]  = useState([]);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy]           = useState(false);
 
   const [form, setForm] = useState({
     username: "", email: "", role: "", department: "", password: "", confirm: "",
   });
   const set = k => v => setForm(f => ({ ...f, [k]: v }));
 
-  useEffect(() => {
-    Promise.all([
-      fetch(`${API}/employees/?page_size=500`, { headers: authHeaders() }).then(r => r.json()),
-      fetch(`${API}/employees/departments/`,   { headers: authHeaders() }).then(r => r.json()),
-    ]).then(([e, d]) => {
-      setEmployees(Array.isArray(e) ? e : e.results || []);
-      setDepartments(Array.isArray(d) ? d : d.results || []);
-    }).catch(() => showToast("Failed to load employees.", "err"))
-    .finally(() => setLoadingEmps(false));
-  }, []);
-
   const pickEmployee = (emp) => {
     setSelectedEmp(emp);
-    // Pre-fill email/username from employee
     setForm(f => ({
       ...f,
       username: `${emp.first_name.toLowerCase()}.${emp.last_name.toLowerCase()}`.replace(/\s/g, ""),
@@ -258,9 +245,9 @@ function AddAdminModal({ onClose, onSave, showToast }) {
         showToast(Array.isArray(msg) ? msg[0] : msg || "Failed to create admin.", "err"); return;
       }
       showToast(`Admin account created for ${payload.full_name}.`);
-      onSave(data);
+      onSave(data);  // caller does addAdmin(data) optimistically
       onClose();
-    } catch { showToast("Server error.", "err"); }
+    } catch (_e) { showToast("Server error.", "err"); }
     finally { setBusy(false); }
   };
 
@@ -269,13 +256,12 @@ function AddAdminModal({ onClose, onSave, showToast }) {
   return (
     <Modal title={step === 1 ? "Add Admin — Select Employee" : "Add Admin — Account Details"} onClose={onClose} maxWidth={580}>
       {step === 1 && (
-        loadingEmps
+        employees.length === 0
           ? <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>Loading employees…</div>
           : <EmployeePicker employees={employees} onSelect={pickEmployee} />
       )}
       {step === 2 && selectedEmp && (
         <>
-          {/* Selected employee banner */}
           <div style={{
             display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
             background: "#eff6ff", borderRadius: 10, marginBottom: 20, border: "1px solid #c7d8f0",
@@ -339,7 +325,7 @@ function AddAdminModal({ onClose, onSave, showToast }) {
 
 // ── Edit Admin Modal ──────────────────────────────────────────────────────────
 function EditAdminModal({ admin, departments, onClose, onSave, showToast }) {
-  const [tab, setTab] = useState("details"); // "details" | "password"
+  const [tab, setTab] = useState("details");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
     full_name: admin.full_name || "",
@@ -348,7 +334,7 @@ function EditAdminModal({ admin, departments, onClose, onSave, showToast }) {
     department: admin.department ? String(admin.department) : "",
   });
   const [pw, setPw] = useState({ new_password: "", confirm: "" });
-  const set  = k => v => setForm(f => ({ ...f, [k]: v }));
+  const set    = k => v => setForm(f => ({ ...f, [k]: v }));
   const setPwF = k => v => setPw(p => ({ ...p, [k]: v }));
 
   const saveDetails = async () => {
@@ -365,9 +351,9 @@ function EditAdminModal({ admin, departments, onClose, onSave, showToast }) {
       const data = await res.json();
       if (!res.ok) { showToast(Object.values(data)[0] || "Failed.", "err"); return; }
       showToast("Admin details updated.");
-      onSave(data);
+      onSave(data);  // caller does updateAdmin(data) optimistically
       onClose();
-    } catch { showToast("Server error.", "err"); }
+    } catch (_e) { showToast("Server error.", "err"); }
     finally { setBusy(false); }
   };
 
@@ -384,13 +370,12 @@ function EditAdminModal({ admin, departments, onClose, onSave, showToast }) {
       if (!res.ok) { showToast(data.error || "Failed.", "err"); return; }
       showToast(`Password reset for ${admin.full_name}.`);
       onClose();
-    } catch { showToast("Server error.", "err"); }
+    } catch (_e) { showToast("Server error.", "err"); }
     finally { setBusy(false); }
   };
 
   return (
     <Modal title={`Edit — ${admin.full_name}`} onClose={onClose}>
-      {/* Tabs */}
       <div style={{ display: "flex", borderBottom: "1px solid #e2e8f0", marginBottom: 20 }}>
         {[["details", "Account Details"], ["password", "Reset Password"]].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
@@ -467,7 +452,6 @@ function EditAdminModal({ admin, departments, onClose, onSave, showToast }) {
     </Modal>
   );
 }
-
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 function fmtDT(iso) {
@@ -582,7 +566,7 @@ function downloadSessionReport(session, records, adminName) {
   URL.revokeObjectURL(url);
 }
 
-// ── Session Attendance Panel (shown inside history tab) ───────────────────────
+// ── Session Attendance Panel ──────────────────────────────────────────────────
 function SessionPanel({ session, adminId, adminName, onBack, showToast }) {
   const [records,  setRecords]  = useState(null);
   const [loading,  setLoading]  = useState(true);
@@ -615,7 +599,6 @@ function SessionPanel({ session, adminId, adminName, onBack, showToast }) {
 
   return (
     <div>
-      {/* Back + title */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <button onClick={onBack} style={{
           display: "flex", alignItems: "center", gap: 5, background: "#eff6ff",
@@ -630,7 +613,6 @@ function SessionPanel({ session, adminId, adminName, onBack, showToast }) {
         <span style={{ fontSize: 13, fontWeight: 700, color: "#0a2a5e" }}>Session Attendance</span>
       </div>
 
-      {/* Session times */}
       <div style={{
         background: "#f8faff", borderRadius: 12, padding: "14px 16px",
         border: "1px solid #e2e8f0", marginBottom: 16,
@@ -658,7 +640,6 @@ function SessionPanel({ session, adminId, adminName, onBack, showToast }) {
         </div>
       </div>
 
-      {/* Records */}
       {loading ? (
         <div style={{ textAlign: "center", padding: "28px 0", color: "#94a3b8", fontSize: 13 }}>
           <div style={{ width: 26, height: 26, border: "3px solid #e8edf8", borderTopColor: "#1557b0", borderRadius: "50%", animation: "spin 0.75s linear infinite", margin: "0 auto 10px" }} />
@@ -671,7 +652,6 @@ function SessionPanel({ session, adminId, adminName, onBack, showToast }) {
         </div>
       ) : (
         <>
-          {/* Mini stats */}
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             {[
               ["Total",   records.length,                                    "#1557b0", "#eff6ff"],
@@ -689,7 +669,6 @@ function SessionPanel({ session, adminId, adminName, onBack, showToast }) {
             ))}
           </div>
 
-          {/* Employee list */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden", marginBottom: 14 }}>
             {records.map((r, i) => {
               const st = statusMeta(r.status);
@@ -715,7 +694,6 @@ function SessionPanel({ session, adminId, adminName, onBack, showToast }) {
         </>
       )}
 
-      {/* Download button */}
       <button onClick={handleDownload} disabled={!records || dlBusy} style={{
         width: "100%", padding: "11px 0", borderRadius: 10, border: "none",
         background: "linear-gradient(135deg,#0a2a5e,#1557b0)", color: "#fff",
@@ -736,9 +714,9 @@ function SessionPanel({ session, adminId, adminName, onBack, showToast }) {
 // ── Admin Detail Drawer ────────────────────────────────────────────────────────
 function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast }) {
   const [localAdmin,   setLocalAdmin]   = useState(admin);
-  const [tab,          setTab]          = useState("info"); // "info" | "history"
+  const [tab,          setTab]          = useState("info");
   const [activity,     setActivity]     = useState(null);
-  const [sessionView,  setSessionView]  = useState(null);  // session object or null
+  const [sessionView,  setSessionView]  = useState(null);
 
   const dept = departments.find(d => d.id === localAdmin.department);
   const rc   = roleColors[localAdmin.role] || { bg: "#f1f5f9", color: "#64748b" };
@@ -759,7 +737,7 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
       setLocalAdmin(a => ({ ...a, is_active: data.is_active }));
       showToast(data.message);
       onToggle && onToggle(localAdmin.id, data.is_active);
-    } catch { showToast("Server error.", "err"); }
+    } catch (_e) { showToast("Server error.", "err"); }
   };
 
   return (
@@ -774,13 +752,11 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
         boxShadow: "-20px 0 60px rgba(0,0,0,0.15)",
         animation: "adSlideRight 0.28s cubic-bezier(0.22,1,0.36,1) both",
       }}>
-
-        {/* ── Header ── */}
+        {/* Header */}
         <div style={{
           background: "linear-gradient(135deg,#0a2a5e 0%,#1557b0 60%,#1a6fd4 100%)",
           padding: "22px 20px 0", flexShrink: 0,
         }}>
-          {/* Close + Edit */}
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
             <button onClick={onClose} style={{
               width: 32, height: 32, background: "rgba(255,255,255,0.15)", border: "none",
@@ -805,7 +781,6 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
             </button>
           </div>
 
-          {/* Avatar + name */}
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
             <Avatar name={localAdmin.full_name} size={56} />
             <div>
@@ -835,7 +810,6 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
             </div>
           </div>
 
-          {/* Meta grid */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
             {[
               ["Email",      localAdmin.email || "—"],
@@ -848,7 +822,6 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
             ))}
           </div>
 
-          {/* Tabs */}
           <div style={{ display: "flex", gap: 4 }}>
             {[["info", "Account Info"], ["history", "Login History"]].map(([key, label]) => (
               <button key={key} onClick={() => { setTab(key); setSessionView(null); }} style={{
@@ -856,20 +829,17 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
                 fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700,
                 background: tab === key ? "#fff" : "rgba(255,255,255,0.12)",
                 color: tab === key ? "#0a2a5e" : "rgba(255,255,255,0.75)",
-                borderRadius: tab === key ? "8px 8px 0 0" : "8px 8px 0 0",
-                transition: "all 0.15s",
+                borderRadius: "8px 8px 0 0", transition: "all 0.15s",
               }}>{label}</button>
             ))}
           </div>
         </div>
 
-        {/* ── Body ── */}
+        {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
 
-          {/* ────── TAB: Account Info ────── */}
           {tab === "info" && (
             <>
-              {/* Activate / Deactivate */}
               <div style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
                 background: localAdmin.is_active ? "#fef2f2" : "#f0fdf4",
@@ -894,7 +864,6 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
                 </button>
               </div>
 
-              {/* Account details grid */}
               <div style={{ marginBottom: 20 }}>
                 <div style={{
                   fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2,
@@ -920,7 +889,6 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
                 </div>
               </div>
 
-              {/* Latest session snapshot */}
               <div>
                 <div style={{
                   fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2,
@@ -952,7 +920,6 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
                       border: "1px solid #e2e8f0",
                       borderLeft: `4px solid ${isActive ? "#059669" : "#1557b0"}`,
                     }}>
-                      {/* Login time */}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                         <div style={{ width: 9, height: 9, borderRadius: "50%", background: "#059669", flexShrink: 0 }} />
                         <div>
@@ -960,7 +927,6 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
                           <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginTop: 1 }}>{fmtDT(s.login.timestamp)}</div>
                         </div>
                       </div>
-                      {/* Logout time */}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                         <div style={{ width: 9, height: 9, borderRadius: "50%", background: isActive ? "#e2e8f0" : "#dc2626", flexShrink: 0 }} />
                         <div>
@@ -973,7 +939,6 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
                           }
                         </div>
                       </div>
-                      {/* Duration */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, borderTop: "1px solid #f1f5f9" }}>
                         <span style={{ fontSize: 11, color: "#94a3b8" }}>
                           {s.login.ip_address ? `IP: ${s.login.ip_address}` : ""}
@@ -993,7 +958,6 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
             </>
           )}
 
-          {/* ────── TAB: Login History ────── */}
           {tab === "history" && (
             sessionView ? (
               <SessionPanel
@@ -1044,13 +1008,11 @@ function AdminDetail({ admin, departments, onClose, onEdit, onToggle, showToast 
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                             <div style={{ flex: 1 }}>
-                              {/* Login row */}
                               <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
                                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#059669", flexShrink: 0 }} />
                                 <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#64748b", minWidth: 44 }}>Login</span>
                                 <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>{fmtDT(s.login.timestamp)}</span>
                               </div>
-                              {/* Logout row */}
                               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? "#e2e8f0" : "#dc2626", flexShrink: 0 }} />
                                 <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#64748b", minWidth: 44 }}>Logout</span>
@@ -1112,35 +1074,38 @@ function downloadAdminsCSV(admins, departments) {
 
 // ── Main AdminsPage ────────────────────────────────────────────────────────────
 export default function AdminsPage({ showToast }) {
-  const [admins,      setAdmins]      = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [search,      setSearch]      = useState("");
-  const [roleFilter,  setRoleFilter]  = useState("");
-  const [statusFilter,setStatusFilter]= useState("");
-  const [modal,       setModal]       = useState(null); // "add"
-  const [selected,    setSelected]    = useState(null);
-  const [editTarget,  setEditTarget]  = useState(null);
-  const [detailOpen,  setDetailOpen]  = useState(false);
-  const [dlMenu,      setDlMenu]      = useState(false);
+  // ── Pull from context (same pattern as EmployeesPage) ──
+  const {
+    admins:      ctxAdmins,
+    employees:   ctxEmployees,
+    departments: ctxDepartments,
+    loading:     ctxLoading,
+    errors:      ctxErrors,
+    refetchAdmins,
+    addAdmin,
+    updateAdmin,
+  } = useITPortal();
+
+  const admins      = ctxAdmins      || [];
+  const employees   = ctxEmployees   || [];
+  const departments = ctxDepartments || [];
+  const loading     = ctxLoading.admins;
+
+  // Surface context errors once
+  useEffect(() => {
+    if (ctxErrors.admins)      showToast("Failed to load admins.", "err");
+    if (ctxErrors.departments) showToast("Failed to load departments.", "err");
+  }, [ctxErrors.admins, ctxErrors.departments]);
+
+  const [search,       setSearch]       = useState("");
+  const [roleFilter,   setRoleFilter]   = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [modal,        setModal]        = useState(null); // "add"
+  const [selected,     setSelected]     = useState(null);
+  const [editTarget,   setEditTarget]   = useState(null);
+  const [detailOpen,   setDetailOpen]   = useState(false);
+  const [dlMenu,       setDlMenu]       = useState(false);
   const dlRef = useRef();
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [aR, dR] = await Promise.all([
-        fetch(`${API}/auth/admins/`,          { headers: authHeaders() }),
-        fetch(`${API}/employees/departments/`, { headers: authHeaders() }),
-      ]);
-      const aData = await aR.json();
-      const dData = await dR.json();
-      setAdmins(Array.isArray(aData) ? aData : aData.results || []);
-      setDepartments(Array.isArray(dData) ? dData : dData.results || []);
-    } catch { showToast("Failed to load admins.", "err"); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     const fn = e => { if (dlRef.current && !dlRef.current.contains(e.target)) setDlMenu(false); };
@@ -1150,9 +1115,9 @@ export default function AdminsPage({ showToast }) {
 
   const filtered = admins.filter(a => {
     const q = search.toLowerCase();
-    const matchSearch = !q || [a.full_name, a.username, a.email, a.department_name].some(v => (v || "").toLowerCase().includes(q));
-    const matchRole   = !roleFilter   || a.role === roleFilter;
-    const matchStatus = !statusFilter || (statusFilter === "active" ? a.is_active : !a.is_active);
+    const matchSearch  = !q || [a.full_name, a.username, a.email, a.department_name].some(v => (v || "").toLowerCase().includes(q));
+    const matchRole    = !roleFilter   || a.role === roleFilter;
+    const matchStatus  = !statusFilter || (statusFilter === "active" ? a.is_active : !a.is_active);
     return matchSearch && matchRole && matchStatus;
   });
 
@@ -1161,14 +1126,16 @@ export default function AdminsPage({ showToast }) {
   const roleGroups    = ROLES.map(r => ({ ...r, count: admins.filter(a => a.role === r.value).length })).filter(r => r.count > 0);
 
   const openDetail = (adm) => {
+    // Fetch the full admin record (with all fields) then show the drawer
     fetch(`${API}/auth/admins/${adm.id}/`, { headers: authHeaders() })
       .then(r => r.json())
       .then(full => { setSelected(full); setDetailOpen(true); })
       .catch(() => { setSelected(adm); setDetailOpen(true); });
   };
 
+  // Optimistic toggle: update the context cache directly
   const handleToggle = (id, is_active) => {
-    setAdmins(prev => prev.map(a => a.id === id ? { ...a, is_active } : a));
+    updateAdmin({ id, is_active });
   };
 
   return (
@@ -1178,7 +1145,6 @@ export default function AdminsPage({ showToast }) {
         @keyframes adSlideUp   { from{opacity:0;transform:translateY(22px);} to{opacity:1;transform:none;} }
         @keyframes adSlideRight{ from{opacity:0;transform:translateX(40px);} to{opacity:1;transform:none;} }
         @keyframes spin        { to{transform:rotate(360deg);} }
-        @keyframes pulse       { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
         .ad-row { cursor:pointer; transition:background 0.12s; }
         .ad-row:hover { background:#f0f6ff !important; }
         .ad-edit-btn:hover { background:#eff6ff !important; color:#1557b0 !important; }
@@ -1267,7 +1233,6 @@ export default function AdminsPage({ showToast }) {
         </select>
         <div style={{ flex: 1 }} />
 
-        {/* Download */}
         <div style={{ position: "relative" }} ref={dlRef}>
           <button onClick={() => setDlMenu(!dlMenu)} style={{
             padding: "9px 16px", borderRadius: 10, border: "1.5px solid #e2e8f0",
@@ -1298,7 +1263,6 @@ export default function AdminsPage({ showToast }) {
           )}
         </div>
 
-        {/* Add Admin */}
         <button onClick={() => setModal("add")} style={{
           padding: "9px 18px", borderRadius: 10, border: "none",
           background: "linear-gradient(135deg,#0a2a5e,#1557b0)", color: "#fff",
@@ -1408,7 +1372,7 @@ export default function AdminsPage({ showToast }) {
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                          </svg>
+          </svg>
                         </button>
                       </td>
                     </tr>
@@ -1429,8 +1393,10 @@ export default function AdminsPage({ showToast }) {
       {/* Modals */}
       {modal === "add" && (
         <AddAdminModal
+          employees={employees}
+          departments={departments}
           onClose={() => setModal(null)}
-          onSave={() => load()}
+          onSave={(newAdmin) => addAdmin(newAdmin)}  // optimistic — no refetch needed
           showToast={showToast}
         />
       )}
@@ -1439,7 +1405,7 @@ export default function AdminsPage({ showToast }) {
           admin={editTarget}
           departments={departments}
           onClose={() => setEditTarget(null)}
-          onSave={() => { load(); setEditTarget(null); }}
+          onSave={(updated) => updateAdmin(updated)}  // optimistic — no refetch needed
           showToast={showToast}
         />
       )}
