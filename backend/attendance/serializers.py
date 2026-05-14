@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Shift, AttendanceRecord
+from .models import Shift, AttendanceRecord, WorkLocation
 
 class ShiftSerializer(serializers.ModelSerializer):
     class Meta:
@@ -18,3 +18,9 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
 
     def get_employee_name(self, obj):
         return f"{obj.employee.first_name} {obj.employee.last_name}"
+
+class WorkLocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = WorkLocation
+        fields = ('id', 'name', 'created_by', 'created_at')
+        read_only_fields = ('created_by', 'created_at')

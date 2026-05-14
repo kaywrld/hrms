@@ -921,7 +921,6 @@ function DashboardPage({ showToast }) {
   const [dlOpen, setDlOpen] = useState(false);
   const dlRef = useRef();
   const [selectedEmp, setSelectedEmp] = useState(null);   // full employee object once loaded
-  const [empLoading,  setEmpLoading]  = useState(false);
 
   useEffect(() => {
     if (errors.employees) showToast("Failed to load employees.", "err");
@@ -934,11 +933,6 @@ function DashboardPage({ showToast }) {
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  if (empLoading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh", flexDirection: "column", gap: 16 }}>
-      <div className="dp-spin" /><p style={{ color: "#64748b", fontSize: 14 }}>Loading employee profile…</p>
-    </div>
-  );
 
   if (selectedEmp) return (
     <EmployeeProfileView emp={selectedEmp} onBack={() => setSelectedEmp(null)} />
@@ -1150,14 +1144,9 @@ function DashboardPage({ showToast }) {
                   const avatarLetters = `${e.first_name[0] || ""}${e.last_name[0] || ""}`.toUpperCase();
                   const empTypeFmt = { full_time: "Full Time", part_time: "Part Time", contract: "Contract" }[e.employment_type] || e.employment_type;
                   return (
-                    <tr key={e.id} onClick={async () => {
-                      setEmpLoading(true);
-                      try {
-                        const res = await apiFetch(`${API}/employees/${e.id}/`);
-                        if (res.ok) { const full = await res.json(); setSelectedEmp(full); }
-                        else showToast("Failed to load employee details.", "err");
-                      } catch { showToast("Server error.", "err"); }
-                      finally { setEmpLoading(false); }
+                    <tr key={e.id} onClick={() => {
+                      // Employee data already in context — instant, no network call
+                      setSelectedEmp(e);
                     }} style={{ cursor: "pointer" }}
                       onMouseEnter={ev => ev.currentTarget.style.background = "#eff6ff"}
                       onMouseLeave={ev => ev.currentTarget.style.background = ""}>
@@ -1256,9 +1245,28 @@ function DashboardPage({ showToast }) {
 }
 
 // ── Attendance Page ───────────────────────────────────────────────────────────
+
+// ── Location registry — loaded from backend, shared across all admins ──
+// resolveLocation: title-cases the input (no client-side alias mapping needed;
+//   the DB is the single source of truth for known names)
+function resolveLocation(raw) {
+  if (!raw || !raw.trim()) return "";
+  return raw.trim().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// suggestLocations filters the live registry passed in from state
+function suggestLocations(raw, registry) {
+  if (!raw || raw.length < 1 || !registry) return [];
+  const lower = raw.toLowerCase();
+  return registry.filter(name => name.toLowerCase().includes(lower));
+}
+
 function AttendancePage({ showToast }) {
-  const { employees, deptName } = useDeptPortal();
+  const { employees, deptName, upsertAttendanceRecord, getAttendanceForDate,
+          locationRegistry, registerLocation } = useDeptPortal();
   const user = getUser();
+
+  // locationRegistry + registerLocation come from DeptPortalContext
 
   // ── Date navigation ──
   const todayStr = () => {
@@ -1276,51 +1284,80 @@ function AttendancePage({ showToast }) {
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  // ── Attendance records for selected date ──
-  // Map: employeeId → record
-  const [records,  setRecords]  = useState({});   // { empId: { id, status, arrival_time, absence_reason } }
-  const [loadingR, setLoadingR] = useState(false);
-  const [saving,   setSaving]   = useState({});    // { empId: true }
+  // ── Is this date in the past? ──
+  const isPastDate = selectedDate < todayStr();
 
-  // ── Inline editing state ──
-  // What the admin has clicked for each employee (before saving)
-  // { empId: { status, arrival_time, absence_reason } }
+  // ── Late-register reason gate ──
+  // Before the admin can mark any attendance on a past date, they must
+  // submit a reason. Once submitted it unlocks marking for this date.
+  const [lateRegReason,       setLateRegReason]       = useState(""); // input value
+  const [lateRegReasonSaved,  setLateRegReasonSaved]  = useState(""); // saved (unlocks table)
+  const [showLateRegModal,    setShowLateRegModal]     = useState(false);
+  // When date changes, reset the saved reason so the modal fires again for each different past date
+  useEffect(() => {
+    setLateRegReasonSaved("");
+    setLateRegReason("");
+  }, [selectedDate]);
+
+  // Derive whether the table is locked: past date and reason not yet given
+  const tableLocked = isPastDate && !lateRegReasonSaved;
+
+  // ── Attendance records for selected date ──
+  const [records,  setRecords]  = useState({});
+  const [loadingR, setLoadingR] = useState(false);
+  const [saving,   setSaving]   = useState({});
+
   const [draft, setDraft] = useState({});
 
-  // Modal for late/absent extra fields
+  // Modal for late/absent extra fields (arrival time / absence reason)
   const [modal, setModal] = useState(null); // { empId, type: 'late'|'absent' }
   const [modalVal, setModalVal] = useState({ arrival_time: "", absence_reason: "" });
 
-  // Fetch records for selected date
+  // ── Per-employee location state ──
+  const [empLocSuggestions, setEmpLocSuggestions] = useState({});
+  const [empLocDropOpen,    setEmpLocDropOpen]    = useState({});
+
+  const handleEmpLocationInput = (empId, val) => {
+    setDraft(d => ({ ...d, [empId]: { ...(d[empId] || {}), work_location: val } }));
+    const sug = suggestLocations(val, locationRegistry);
+    setEmpLocSuggestions(s => ({ ...s, [empId]: sug }));
+    setEmpLocDropOpen(o => ({ ...o, [empId]: sug.length > 0 && val.length > 0 }));
+  };
+  const handleEmpLocationBlur = (empId) => {
+    setTimeout(() => {
+      setEmpLocDropOpen(o => ({ ...o, [empId]: false }));
+      setDraft(d => {
+        const cur = d[empId]?.work_location || "";
+        if (cur.trim()) return { ...d, [empId]: { ...(d[empId] || {}), work_location: resolveLocation(cur) } };
+        return d;
+      });
+    }, 160);
+  };
+  const pickEmpLocation = (empId, loc) => {
+    setDraft(d => ({ ...d, [empId]: { ...(d[empId] || {}), work_location: loc } }));
+    setEmpLocDropOpen(o => ({ ...o, [empId]: false }));
+  };
+
+  // Fetch records for selected date — uses context cache (instant on revisit)
   const fetchRecords = useCallback(async (date) => {
     setLoadingR(true);
-    try {
-      const res = await apiFetch(`${API}/attendance/?date=${date}`);
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : (data.results || []);
-      const map = {};
-      list.forEach(r => { map[r.employee] = r; });
-      setRecords(map);
-      // Sync draft to match saved records
-      setDraft(prev => {
-        const next = { ...prev };
-        // Only reset drafts for employees that now have a saved record
-        list.forEach(r => {
-          next[r.employee] = {
-            status: r.status,
-            arrival_time: r.arrival_time || "",
-            absence_reason: r.absence_reason || "",
-          };
-        });
-        return next;
+    const { records: map, error } = await getAttendanceForDate(date);
+    if (error) showToast("Failed to load attendance records.", "err");
+    setRecords(map);
+    setDraft(prev => {
+      const next = { ...prev };
+      Object.values(map).forEach(r => {
+        next[r.employee] = {
+          status: r.status,
+          arrival_time: r.arrival_time || "",
+          absence_reason: r.absence_reason || "",
+          work_location: r.work_location || "",
+        };
       });
-    } catch {
-      showToast("Failed to load attendance records.", "err");
-    } finally {
-      setLoadingR(false);
-    }
-  }, [showToast]);
+      return next;
+    });
+    setLoadingR(false);
+  }, [getAttendanceForDate, showToast]);
 
   useEffect(() => {
     fetchRecords(selectedDate);
@@ -1346,6 +1383,8 @@ function AttendancePage({ showToast }) {
     setSaving(s => ({ ...s, [empId]: true }));
     try {
       const existing = records[empId];
+      const resolvedLoc = resolveLocation(extra.work_location || draft[empId]?.work_location || "");
+      if (resolvedLoc) registerLocation(resolvedLoc); // persist to shared registry
       const payload = {
         employee: empId,
         date: selectedDate,
@@ -1354,6 +1393,8 @@ function AttendancePage({ showToast }) {
         notes: "",
         arrival_time: extra.arrival_time || "",
         absence_reason: extra.absence_reason || "",
+        late_register_reason: lateRegReasonSaved || "",
+        work_location: resolvedLoc,
       };
 
       let res;
@@ -1377,11 +1418,17 @@ function AttendancePage({ showToast }) {
 
       const saved = await res.json();
       setRecords(r => ({ ...r, [empId]: saved }));
+      upsertAttendanceRecord(saved);
       setDraft(d => ({
         ...d,
-        [empId]: { status, arrival_time: extra.arrival_time || "", absence_reason: extra.absence_reason || "" },
+        [empId]: {
+          status,
+          arrival_time: extra.arrival_time || "",
+          absence_reason: extra.absence_reason || "",
+          work_location: resolvedLoc,
+        },
       }));
-      showToast(`Marked as ${status}.`);
+      showToast(`Marked as ${status}${resolvedLoc ? ` · ${resolvedLoc}` : ""}.`);
     } catch {
       showToast("Server error.", "err");
     } finally {
@@ -1390,6 +1437,11 @@ function AttendancePage({ showToast }) {
   };
 
   const handleStatusClick = (empId, status) => {
+    // Gate: past date requires reason first
+    if (tableLocked) {
+      setShowLateRegModal(true);
+      return;
+    }
     if (status === "late") {
       setModalVal({ arrival_time: draft[empId]?.arrival_time || "", absence_reason: "" });
       setModal({ empId, type: "late" });
@@ -1412,9 +1464,9 @@ function AttendancePage({ showToast }) {
 
   // ── Summary counts ──
   const activeEmployees = (employees || []).filter(e => e.status === "employed");
-  const presentCount = activeEmployees.filter(e => records[e.id]?.status === "present").length;
-  const absentCount  = activeEmployees.filter(e => records[e.id]?.status === "absent").length;
-  const lateCount    = activeEmployees.filter(e => records[e.id]?.status === "late").length;
+  const presentCount  = activeEmployees.filter(e => records[e.id]?.status === "present").length;
+  const absentCount   = activeEmployees.filter(e => records[e.id]?.status === "absent").length;
+  const lateCount     = activeEmployees.filter(e => records[e.id]?.status === "late").length;
   const unmarkedCount = activeEmployees.filter(e => !records[e.id]).length;
 
   const statusOfEmp = (empId) => draft[empId]?.status || records[empId]?.status || null;
@@ -1450,6 +1502,10 @@ function AttendancePage({ showToast }) {
           font-size: 11px; font-weight: 600; background: #dcfce7; color: #166534;
           padding: 3px 10px; border-radius: 20px; margin-left: 10px; vertical-align: middle;
         }
+        .att-past-badge {
+          font-size: 11px; font-weight: 600; background: #fef3c7; color: #92400e;
+          padding: 3px 10px; border-radius: 20px; margin-left: 10px; vertical-align: middle;
+        }
         /* Calendar picker */
         .att-cal-wrap { position: relative; }
         .att-cal-btn {
@@ -1470,6 +1526,75 @@ function AttendancePage({ showToast }) {
           padding: 10px 14px; border: none; outline: none; border-radius: 9px;
           font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--dp-text);
           background: transparent; cursor: pointer;
+        }
+
+        /* Late-register banner */
+        .att-late-banner {
+          background: linear-gradient(135deg, #fffbeb, #fef3c7);
+          border: 1.5px solid #f59e0b; border-radius: 14px;
+          padding: 16px 20px; margin-bottom: 20px;
+          display: flex; align-items: flex-start; gap: 14px;
+        }
+        .att-late-banner-icon { font-size: 24px; flex-shrink: 0; margin-top: 2px; }
+        .att-late-banner-title { font-size: 14px; font-weight: 700; color: #92400e; margin-bottom: 4px; }
+        .att-late-banner-text  { font-size: 13px; color: #78350f; line-height: 1.5; }
+        .att-late-banner-btn {
+          margin-top: 10px; padding: 9px 20px; border-radius: 10px; border: none;
+          background: linear-gradient(135deg, #d97706, #f59e0b);
+          color: #fff; font-size: 13px; font-weight: 600;
+          font-family: 'DM Sans', sans-serif; cursor: pointer;
+          display: inline-flex; align-items: center; gap: 7px;
+          transition: opacity 0.15s;
+        }
+        .att-late-banner-btn:hover { opacity: 0.88; }
+        .att-late-unlocked {
+          background: #f0fdf4; border: 1.5px solid #4ade80; border-radius: 14px;
+          padding: 12px 18px; margin-bottom: 20px;
+          display: flex; align-items: center; gap: 10px; font-size: 13px; color: #166534;
+        }
+
+        /* Lock overlay on table */
+        .att-table-locked { position: relative; }
+        .att-table-locked::after {
+          content: ''; position: absolute; inset: 0; border-radius: var(--dp-card-r);
+          background: rgba(248,250,255,0.72); backdrop-filter: blur(2px);
+          z-index: 10; pointer-events: all; cursor: not-allowed;
+        }
+
+        /* Location field */
+        .att-location-row {
+          background: #f8faff; border: 1.5px solid var(--dp-border); border-radius: 12px;
+          padding: 14px 18px; margin-bottom: 18px;
+          display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+        }
+        .att-location-label {
+          font-size: 11px; font-weight: 700; text-transform: uppercase;
+          letter-spacing: 0.8px; color: var(--dp-blue-deep); flex-shrink: 0; white-space: nowrap;
+        }
+        .att-location-wrap { position: relative; flex: 1; min-width: 200px; }
+        .att-location-input {
+          width: 100%; padding: 9px 14px; border: 1.5px solid var(--dp-border); border-radius: 9px;
+          font-size: 13px; font-family: 'DM Sans', sans-serif; color: var(--dp-text);
+          background: #fff; outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .att-location-input:focus { border-color: var(--dp-blue); box-shadow: 0 0 0 3px rgba(21,87,176,0.1); }
+        .att-location-drop {
+          position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 400;
+          background: #fff; border: 1.5px solid var(--dp-blue); border-radius: 10px;
+          box-shadow: 0 8px 28px rgba(21,87,176,0.12); overflow: hidden;
+          animation: dp-fadeDown 0.12s ease;
+        }
+        .att-location-opt {
+          padding: 10px 14px; font-size: 13px; color: var(--dp-text); cursor: pointer;
+          border: none; background: none; width: 100%; text-align: left;
+          font-family: 'DM Sans', sans-serif; transition: background 0.1s;
+          display: flex; align-items: center; gap: 8px;
+        }
+        .att-location-opt:hover { background: #eff6ff; color: var(--dp-blue); }
+        .att-location-resolved {
+          font-size: 12px; font-weight: 600; color: #166534;
+          background: #dcfce7; padding: 4px 12px; border-radius: 20px; flex-shrink: 0;
+          display: flex; align-items: center; gap: 5px;
         }
 
         /* Summary cards */
@@ -1517,48 +1642,55 @@ function AttendancePage({ showToast }) {
         }
         .att-status-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* Present */
         .att-btn-present { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
         .att-btn-present:hover:not(:disabled) { background: #dcfce7; border-color: #4ade80; }
         .att-btn-present.active { background: #16a34a; color: #fff; border-color: #16a34a; }
 
-        /* Absent */
         .att-btn-absent { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
         .att-btn-absent:hover:not(:disabled) { background: #fee2e2; border-color: #f87171; }
         .att-btn-absent.active { background: #dc2626; color: #fff; border-color: #dc2626; }
 
-        /* Late */
         .att-btn-late { background: #fffbeb; color: #b45309; border-color: #fde68a; }
         .att-btn-late:hover:not(:disabled) { background: #fef3c7; border-color: #fbbf24; }
         .att-btn-late.active { background: #d97706; color: #fff; border-color: #d97706; }
 
-        /* Tick icon */
         .att-tick { width: 13px; height: 13px; }
 
-        /* Extra info pill */
         .att-info-pill {
-          font-size: 11px; color: var(--dp-muted); margin-left: 6px;
+          font-size: 11px; color: var(--dp-muted); margin-left: 0; margin-bottom: 2px;
           background: #f1f5f9; border-radius: 6px; padding: 2px 7px;
+          display: inline-block;
+        }
+        .att-info-loc {
+          font-size: 11px; color: #1557b0; background: #eff6ff;
+          border-radius: 6px; padding: 2px 7px; display: inline-block;
         }
 
         /* Modal overlay */
         .att-modal-backdrop {
-          position: fixed; inset: 0; background: rgba(10,26,80,0.45);
+          position: fixed; inset: 0; background: rgba(10,26,80,0.52);
           z-index: 700; display: flex; align-items: center; justify-content: center;
           padding: 20px; animation: dp-fadeIn 0.15s ease;
         }
         .att-modal-box {
-          background: #fff; border-radius: 16px; width: 100%; max-width: 420px;
-          box-shadow: 0 20px 56px rgba(0,0,0,0.18);
+          background: #fff; border-radius: 18px; width: 100%; max-width: 460px;
+          box-shadow: 0 24px 64px rgba(0,0,0,0.2);
           animation: dp-slideUp 0.22s cubic-bezier(0.22,1,0.36,1) both; overflow: hidden;
         }
         .att-modal-header {
-          padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;
+          padding: 18px 22px; display: flex; align-items: center; justify-content: space-between;
           border-bottom: 1px solid var(--dp-border);
         }
-        .att-modal-header h3 { font-family:'Playfair Display',serif; font-size:16px; font-weight:700; color:var(--dp-text); }
-        .att-modal-body { padding: 20px; }
-        .att-modal-footer { padding: 0 20px 20px; display:flex; justify-content:flex-end; gap:10px; }
+        .att-modal-header h3 { font-family:'Playfair Display',serif; font-size:17px; font-weight:700; color:var(--dp-text); }
+        .att-modal-body { padding: 22px; }
+        .att-modal-footer { padding: 0 22px 22px; display:flex; justify-content:flex-end; gap:10px; }
+
+        /* Late-register reason modal specifics */
+        .att-lrm-warning {
+          background: #fef3c7; border: 1.5px solid #fbbf24; border-radius: 10px;
+          padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #78350f;
+          display: flex; gap: 10px; align-items: flex-start;
+        }
 
         @media (max-width: 900px) { .att-summary-row { grid-template-columns: repeat(2,1fr); } }
         @media (max-width: 600px) {
@@ -1578,6 +1710,7 @@ function AttendancePage({ showToast }) {
         <div className="att-date-display">
           {formatDisplayDate(selectedDate)}
           {isToday && <span className="att-today-badge">Today</span>}
+          {isPastDate && <span className="att-past-badge">Past Date</span>}
         </div>
 
         <button className="att-nav-btn" onClick={() => navigate(1)} disabled={isToday} title="Next day">
@@ -1602,6 +1735,36 @@ function AttendancePage({ showToast }) {
         </div>
       </div>
 
+      {/* ── Late-register reason banner ── */}
+      {isPastDate && !lateRegReasonSaved && (
+        <div className="att-late-banner">
+          <div className="att-late-banner-icon">⚠️</div>
+          <div>
+            <div className="att-late-banner-title">Late Register — Reason Required</div>
+            <div className="att-late-banner-text">
+              You are attempting to mark attendance for a past date (<strong>{formatDisplayDate(selectedDate)}</strong>).
+              Before proceeding, you must provide a reason why attendance is being recorded late.
+              This reason will be visible to HR.
+            </div>
+            <button className="att-late-banner-btn" onClick={() => setShowLateRegModal(true)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              Submit Reason to Unlock
+            </button>
+          </div>
+        </div>
+      )}
+      {isPastDate && lateRegReasonSaved && (
+        <div className="att-late-unlocked">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <span><strong>Late reason submitted.</strong> Attendance marking is now unlocked for this date.</span>
+          <span style={{ marginLeft:"auto", fontSize:12, color:"#64748b", fontStyle:"italic", maxWidth:300, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+            Reason: "{lateRegReasonSaved}"
+          </span>
+        </div>
+      )}
+
+      {/* Work location is now set per employee in the attendance table */}
+
       {/* ── Summary Cards ── */}
       <div className="att-summary-row">
         {[
@@ -1625,14 +1788,25 @@ function AttendancePage({ showToast }) {
       </div>
 
       {/* ── Attendance Table ── */}
-      <div className="att-table-card">
+      <div className={`att-table-card${tableLocked ? " att-table-locked" : ""}`}
+        onClick={tableLocked ? () => setShowLateRegModal(true) : undefined}
+        title={tableLocked ? "Submit late reason to unlock attendance marking" : undefined}
+      >
         <div className="att-table-title">
           <span>Department Workers — {deptName}</span>
-          {unmarkedCount > 0 && (
-            <span style={{ fontSize:12, color:"#94a3b8", fontWeight:500, textTransform:"none", letterSpacing:0 }}>
-              {unmarkedCount} not yet marked
-            </span>
-          )}
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            {tableLocked && (
+              <span style={{ fontSize:12, fontWeight:600, color:"#d97706", textTransform:"none", letterSpacing:0, display:"flex", alignItems:"center", gap:5 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Locked — submit reason to unlock
+              </span>
+            )}
+            {unmarkedCount > 0 && !tableLocked && (
+              <span style={{ fontSize:12, color:"#94a3b8", fontWeight:500, textTransform:"none", letterSpacing:0 }}>
+                {unmarkedCount} not yet marked
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Progress bar */}
@@ -1653,12 +1827,13 @@ function AttendancePage({ showToast }) {
                   <th>Employee</th>
                   <th>Job Title</th>
                   <th style={{ textAlign:"center" }}>Mark Attendance</th>
+                  <th>Site / Location</th>
                   <th>Details</th>
                 </tr>
               </thead>
               <tbody>
                 {activeEmployees.length === 0 ? (
-                  <tr><td colSpan="4" style={{ textAlign:"center", padding:"40px 0", color:"#94a3b8" }}>No active employees found.</td></tr>
+                  <tr><td colSpan="5" style={{ textAlign:"center", padding:"40px 0", color:"#94a3b8" }}>No active employees found.</td></tr>
                 ) : activeEmployees.map(e => {
                   const fullName = `${e.first_name} ${e.middle_name ? e.middle_name+" " : ""}${e.last_name}`.trim();
                   const initials = `${e.first_name[0]||""}${e.last_name[0]||""}`.toUpperCase();
@@ -1671,7 +1846,7 @@ function AttendancePage({ showToast }) {
 
                   return (
                     <tr key={e.id}>
-                      {/* Employee name + avatar */}
+                      {/* Employee */}
                       <td>
                         <div className="dp-name-cell">
                           <div className="dp-emp-avatar">
@@ -1693,10 +1868,9 @@ function AttendancePage({ showToast }) {
                       {/* Status buttons */}
                       <td>
                         <div className="att-status-group" style={{ justifyContent:"center" }}>
-                          {/* Present */}
                           <button
                             className={`att-status-btn att-btn-present${currentStatus === "present" ? " active" : ""}`}
-                            disabled={isSaving}
+                            disabled={isSaving || tableLocked}
                             onClick={() => handleStatusClick(e.id, "present")}
                             title="Mark Present"
                           >
@@ -1706,10 +1880,9 @@ function AttendancePage({ showToast }) {
                             Present
                           </button>
 
-                          {/* Absent */}
                           <button
                             className={`att-status-btn att-btn-absent${currentStatus === "absent" ? " active" : ""}`}
-                            disabled={isSaving}
+                            disabled={isSaving || tableLocked}
                             onClick={() => handleStatusClick(e.id, "absent")}
                             title="Mark Absent"
                           >
@@ -1719,10 +1892,9 @@ function AttendancePage({ showToast }) {
                             Absent
                           </button>
 
-                          {/* Late */}
                           <button
                             className={`att-status-btn att-btn-late${currentStatus === "late" ? " active" : ""}`}
-                            disabled={isSaving}
+                            disabled={isSaving || tableLocked}
                             onClick={() => handleStatusClick(e.id, "late")}
                             title="Mark Late"
                           >
@@ -1732,24 +1904,54 @@ function AttendancePage({ showToast }) {
                             Late
                           </button>
 
-                          {/* Saving spinner */}
                           {isSaving && <div className="dp-spin" style={{ width:20, height:20, borderWidth:2 }} />}
                         </div>
                       </td>
 
-                      {/* Details pill */}
+                      {/* Site / Location — per employee */}
+                      <td style={{ minWidth: 160, verticalAlign: "top", paddingTop: 10 }}>
+                        <div style={{ position: "relative" }}>
+                          <input
+                            className="att-location-input"
+                            style={{ width: "100%", fontSize: 12 }}
+                            value={draft[e.id]?.work_location || ""}
+                            onChange={ev => handleEmpLocationInput(e.id, ev.target.value)}
+                            onFocus={() => {
+                              const v = draft[e.id]?.work_location || "";
+                              if (v) setEmpLocDropOpen(o => ({ ...o, [e.id]: suggestLocations(v, locationRegistry).length > 0 }));
+                            }}
+                            onBlur={() => handleEmpLocationBlur(e.id)}
+                            placeholder="e.g. Unki, Head Office…"
+                            disabled={tableLocked}
+                          />
+                          {empLocDropOpen[e.id] && (empLocSuggestions[e.id] || []).length > 0 && (
+                            <div className="att-location-drop" style={{ top: "100%", left: 0, right: 0 }}>
+                              {(empLocSuggestions[e.id] || []).map(s => (
+                                <button key={s} className="att-location-opt" onMouseDown={() => pickEmpLocation(e.id, s)}>
+                                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1557b0" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                  {s}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Details */}
                       <td>
-                        {currentStatus === "late" && rec?.arrival_time && (
-                          <span className="att-info-pill">🕐 {rec.arrival_time}</span>
-                        )}
-                        {currentStatus === "absent" && rec?.absence_reason && (
-                          <span className="att-info-pill" title={rec.absence_reason}>
-                            📝 {rec.absence_reason.length > 28 ? rec.absence_reason.slice(0,28)+"…" : rec.absence_reason}
-                          </span>
-                        )}
-                        {!currentStatus && (
-                          <span style={{ fontSize:12, color:"#cbd5e1" }}>—</span>
-                        )}
+                        <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                          {currentStatus === "late" && rec?.arrival_time && (
+                            <span className="att-info-pill">🕐 {rec.arrival_time}</span>
+                          )}
+                          {currentStatus === "absent" && rec?.absence_reason && (
+                            <span className="att-info-pill" title={rec.absence_reason}>
+                              📝 {rec.absence_reason.length > 26 ? rec.absence_reason.slice(0,26)+"…" : rec.absence_reason}
+                            </span>
+                          )}
+                          {!currentStatus && (
+                            <span style={{ fontSize:12, color:"#cbd5e1" }}>—</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1760,7 +1962,70 @@ function AttendancePage({ showToast }) {
         )}
       </div>
 
-      {/* ── Late Modal ── */}
+      {/* ── Late Register Reason Modal ── */}
+      {showLateRegModal && (
+        <div className="att-modal-backdrop" onClick={e => e.target === e.currentTarget && setShowLateRegModal(false)}>
+          <div className="att-modal-box" style={{ maxWidth: 480 }}>
+            <div className="att-modal-header" style={{ background:"linear-gradient(135deg,#92400e,#d97706)", borderBottom:"none" }}>
+              <h3 style={{ color:"#fff", fontFamily:"'Playfair Display',serif" }}>⚠️ Late Register — Reason Required</h3>
+              <button className="dp-modal-close" onClick={() => setShowLateRegModal(false)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div className="att-modal-body">
+              <div className="att-lrm-warning">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink:0, marginTop:1 }}>
+                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <div>
+                  You are marking attendance for <strong>{formatDisplayDate(selectedDate)}</strong> which is a past date.
+                  A mandatory reason is required and will be logged for HR to review.
+                </div>
+              </div>
+              <div className="dp-f-field">
+                <label className="dp-f-label">
+                  Reason for Late Register <span style={{ color:"#dc2626" }}>*</span>
+                </label>
+                <textarea
+                  className="dp-f-input"
+                  rows={4}
+                  placeholder="e.g. System was down on the day, Admin was on leave, Register was lost and needed to be re-entered…"
+                  value={lateRegReason}
+                  onChange={e => setLateRegReason(e.target.value)}
+                  style={{ resize:"vertical", minHeight:100 }}
+                  autoFocus
+                />
+                <div style={{ fontSize:12, color:"#94a3b8", marginTop:6 }}>
+                  This reason is mandatory and cannot be left blank. It will be visible to HR.
+                </div>
+              </div>
+            </div>
+            <div className="att-modal-footer">
+              <button className="dp-btn dp-btn-ghost" onClick={() => setShowLateRegModal(false)}>Cancel</button>
+              <button
+                className="dp-btn dp-btn-primary"
+                style={{ background:"linear-gradient(135deg,#92400e,#d97706)" }}
+                onClick={() => {
+                  const trimmed = lateRegReason.trim();
+                  if (!trimmed) { showToast("Reason cannot be empty.", "err"); return; }
+                  setLateRegReasonSaved(trimmed);
+                  setShowLateRegModal(false);
+                  showToast("Reason submitted. You may now mark attendance.");
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                Submit & Unlock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Late Arrival Modal ── */}
       {modal?.type === "late" && (
         <div className="att-modal-backdrop" onClick={e => e.target === e.currentTarget && setModal(null)}>
           <div className="att-modal-box">
@@ -1777,7 +2042,7 @@ function AttendancePage({ showToast }) {
                 Enter the time this employee arrived at work.
               </p>
               <div className="dp-f-field">
-                <label className="dp-f-label">Arrival Time</label>
+                <label className="dp-f-label">Arrival Time <span style={{ color:"#dc2626" }}>*</span></label>
                 <input
                   className="dp-f-input"
                   type="time"
@@ -1798,7 +2063,7 @@ function AttendancePage({ showToast }) {
         </div>
       )}
 
-      {/* ── Absent Modal ── */}
+      {/* ── Absence Reason Modal ── */}
       {modal?.type === "absent" && (
         <div className="att-modal-backdrop" onClick={e => e.target === e.currentTarget && setModal(null)}>
           <div className="att-modal-box">

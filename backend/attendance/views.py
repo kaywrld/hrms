@@ -2,8 +2,8 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from core.permissions import IsHOD, IsHRM
-from .models import Shift, AttendanceRecord
-from .serializers import ShiftSerializer, AttendanceRecordSerializer
+from .models import Shift, AttendanceRecord, WorkLocation
+from .serializers import ShiftSerializer, AttendanceRecordSerializer, WorkLocationSerializer
 from employees.models import Employee
 
 class ShiftListView(generics.ListCreateAPIView):
@@ -57,3 +57,25 @@ class AttendanceDetailView(generics.RetrieveUpdateAPIView):
         if user.role == 'HOD':
             return AttendanceRecord.objects.filter(employee__department=user.department)
         return AttendanceRecord.objects.all()
+
+class WorkLocationListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /api/attendance/locations/  — returns all saved locations (sorted)
+    POST /api/attendance/locations/  — adds a new location (case-insensitive dedup)
+    """
+    permission_classes = (IsAuthenticated,)
+    serializer_class   = WorkLocationSerializer
+    queryset           = WorkLocation.objects.all()
+
+    def create(self, request, *args, **kwargs):
+        raw  = request.data.get('name', '').strip()
+        if not raw:
+            return Response({'error': 'name is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Case-insensitive lookup — avoid duplicates like "unki" vs "Unki"
+        existing = WorkLocation.objects.filter(name__iexact=raw).first()
+        if existing:
+            return Response(WorkLocationSerializer(existing).data, status=status.HTTP_200_OK)
+
+        obj = WorkLocation.objects.create(name=raw, created_by=request.user.username)
+        return Response(WorkLocationSerializer(obj).data, status=status.HTTP_201_CREATED)

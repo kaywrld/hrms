@@ -30,12 +30,26 @@ class AttendanceRecord(models.Model):
     status         = models.CharField(max_length=20, choices=STATUS_CHOICES)
     marked_by      = models.CharField(max_length=100)  # AdminUser username
     notes          = models.TextField(blank=True)
-    arrival_time   = models.CharField(max_length=10, blank=True, help_text='Time of arrival for late arrivals, e.g. 09:35')
-    absence_reason = models.CharField(max_length=255, blank=True, help_text='Reason for absence')
-    created_at     = models.DateTimeField(auto_now_add=True)
+    arrival_time          = models.CharField(max_length=10, blank=True, help_text='Time of arrival for late arrivals, e.g. 09:35')
+    absence_reason        = models.CharField(max_length=255, blank=True, help_text='Reason for absence')
+    late_register_reason  = models.TextField(blank=True, help_text='Reason why attendance is being marked late (for past dates)')
+    work_location         = models.CharField(max_length=255, blank=True, help_text='Site or location where the employee worked that day')
+    created_at            = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ('employee', 'date')  # one record per employee per day
 
     def __str__(self):
         return f"{self.employee} | {self.date} | {self.status}"
+
+class WorkLocation(models.Model):
+    """Shared registry of work sites/locations, maintained across all admins."""
+    name       = models.CharField(max_length=255, unique=True)
+    created_by = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
