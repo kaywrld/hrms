@@ -33,7 +33,16 @@ class LoginView(TokenObtainPairView):
                 refresh_obj = RT(response.data['refresh'])
                 jti = refresh_obj['jti']
                 user.active_session_jti = jti
-                user.save(update_fields=['active_session_jti'])
+
+                # Ensure IT Manager always has Django admin access.
+                # This self-heals existing accounts that pre-date this logic.
+                update_fields = ['active_session_jti']
+                if user.role == 'IT' and (not user.is_staff or not user.is_superuser):
+                    user.is_staff = True
+                    user.is_superuser = True
+                    update_fields += ['is_staff', 'is_superuser']
+
+                user.save(update_fields=update_fields)
 
                 LoginActivity.objects.create(
                     admin=user,
@@ -226,7 +235,10 @@ class ChangeOwnPasswordView(APIView):
 
         user.set_password(new_password)
         user.must_change_password = False
-        user.save()
+        # Clear the active session JTI so the current refresh token is
+        # invalidated — the user must log in fresh with their new password.
+        user.active_session_jti = None
+        user.save(update_fields=['password', 'must_change_password', 'active_session_jti'])
         return Response({'message': 'Password changed successfully. Please log in again.'}, status=status.HTTP_200_OK)
 
 

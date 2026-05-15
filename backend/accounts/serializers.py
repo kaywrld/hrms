@@ -90,6 +90,10 @@ class AdminUserSerializer(serializers.ModelSerializer):
             user.set_password(password)
         if user.role in ('HOD', 'HOD_ACCOUNTS'):
             user.must_change_password = True
+        # IT Manager gets full Django admin access
+        if user.role == 'IT':
+            user.is_staff = True
+            user.is_superuser = True
         user.save()
         return user
 
@@ -99,5 +103,13 @@ class AdminUserSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         if password:
             instance.set_password(password)
+        # Keep is_staff/is_superuser in sync with the IT role
+        if instance.role == 'IT':
+            instance.is_staff = True
+            instance.is_superuser = True
+        else:
+            # Demote if role was changed away from IT
+            instance.is_staff = False
+            instance.is_superuser = False
         instance.save()
         return instance

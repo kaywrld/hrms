@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login          from "./pages/Login";
 import ITPortal       from "./pages/ITPortal";
 import DeptPortal     from "./pages/DeptPortal";
+import HRPortal       from "./pages/HRPortal";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
@@ -24,9 +25,11 @@ export default function App() {
           <ProtectedRoute role="HOD_ACCOUNTS"><DeptPortal /></ProtectedRoute>
         }/>
 
+        {/* HR Portal — Human Resource Manager & Standard HR */}
+        <Route path="/portal/hrm" element={<ProtectedRoute role="HRM"><HRPortal /></ProtectedRoute>}/>
+        <Route path="/portal/hr"  element={<ProtectedRoute role="HR"><HRPortal /></ProtectedRoute>}/>
+
         {/* Other portals — placeholders until built */}
-        <Route path="/portal/hrm" element={<ProtectedRoute role="HRM"><div>HRM Portal</div></ProtectedRoute>}/>
-        <Route path="/portal/hr"  element={<ProtectedRoute role="HR"><div>HR Portal</div></ProtectedRoute>}/>
         <Route path="/portal/md"  element={<ProtectedRoute role="MD"><div>MD Portal</div></ProtectedRoute>}/>
 
         {/* Catch all → back to login */}
