@@ -46,6 +46,10 @@ class AdminUser(AbstractBaseUser, PermissionsMixin):
         max_length=255, blank=True, null=True,
         help_text="JTI of the currently active refresh token (single-device enforcement)."
     )
+    last_activity        = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Timestamp of the last token refresh — used to detect abandoned sessions."
+    )
     must_change_password = models.BooleanField(
         default=False,
         help_text="Force the user to change their password on next login."

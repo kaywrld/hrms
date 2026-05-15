@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .models import AdminUser, LoginActivity
 
@@ -13,35 +14,34 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         if user.department:
             token['department_id']   = user.department.id
             token['department_name'] = user.department.name
-        # Embed the refresh token's JTI so the backend can verify it later
         token['session_jti'] = str(token['jti'])
         return token
 
     def validate(self, attrs):
         from django.contrib.auth import get_user_model
-        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+        from django.utils import timezone
         User = get_user_model()
 
-        # Validate credentials FIRST — this raises "invalid username/password" if wrong
+        # Validate credentials FIRST — wrong password/username raised here
         data = super().validate(attrs)
 
         # Only after credentials pass, check the session lock
         try:
             candidate = User.objects.get(username=attrs.get('username', ''))
             if candidate.active_session_jti:
-                is_still_active = OutstandingToken.objects.filter(
-                    jti=candidate.active_session_jti
-                ).exclude(
-                    blacklistedtoken__isnull=False
-                ).exists()
-
-                if not is_still_active:
+                stale = (
+                    candidate.last_activity is None or
+                    (timezone.now() - candidate.last_activity).total_seconds() > 600  # 10 min
+                )
+                if stale:
+                    # Session abandoned without logout — auto-clear it
                     candidate.active_session_jti = None
-                    candidate.save(update_fields=['active_session_jti'])
+                    candidate.last_activity = None
+                    candidate.save(update_fields=['active_session_jti', 'last_activity'])
                 else:
-                    raise serializers.ValidationError({
+                    raise PermissionDenied({
                         'detail': 'This account is currently logged in on another device. '
-                                'Please log out from that device first and try again.',
+                                  'Please log out from that device first and try again.',
                         'code': 'already_logged_in',
                     })
         except User.DoesNotExist:
@@ -88,7 +88,6 @@ class AdminUserSerializer(serializers.ModelSerializer):
         user = AdminUser(**validated_data)
         if password:
             user.set_password(password)
-        # HOD accounts must change their initial password on first login
         if user.role in ('HOD', 'HOD_ACCOUNTS'):
             user.must_change_password = True
         user.save()

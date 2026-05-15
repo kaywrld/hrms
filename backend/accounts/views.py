@@ -115,11 +115,13 @@ class ValidatedTokenRefreshView(TokenRefreshView):
         # refresh still passes the check.
         if response.status_code == 200 and 'refresh' in response.data:
             try:
+                from django.utils import timezone  # ADD THIS
                 new_token = RefreshToken(response.data['refresh'])
                 user.active_session_jti = new_token['jti']
-                user.save(update_fields=['active_session_jti'])
+                user.last_activity = timezone.now()  # ADD THIS
+                user.save(update_fields=['active_session_jti', 'last_activity'])  # ADD last_activity here
             except (TokenError, KeyError):
-                pass  # Non-fatal — token is still valid for this request
+                pass
 
         return response
 
