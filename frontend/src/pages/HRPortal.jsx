@@ -10,6 +10,7 @@ import { performLogout, startInactivityTimer, apiFetch } from "../utils/auth";
 import HREmployeesPage   from "../components/HRPortal/EmployeesPage";
 import HRPayrollPage     from "../components/HRPortal/PayrollPage";
 import HRAttendancePage  from "../components/HRPortal/AttendancePage";
+import HRAdminsPage     from "../components/HRPortal/HRAdminsPage";
 
 // ── Palette & design tokens ───────────────────────────────────────────────────
 const COLORS = {
@@ -2565,14 +2566,7 @@ function HRPortalInner() {
   const renderPage = () => {
     switch (page) {
       case "dashboard":  return <Dashboard showToast={showToast} isHRM={isHRM} onEditEmployee={handleDashboardEdit} />;
-      case "admins":     return (
-        <PlaceholderPage name="Admin Management" icon={
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
-          </svg>
-        } />
-      );
+      case "admins":     return <HRAdminsPage showToast={showToast} />;
       case "employees":  return (
         <HREmployeesPage showToast={showToast} isHRM={isHRM} />
       );
