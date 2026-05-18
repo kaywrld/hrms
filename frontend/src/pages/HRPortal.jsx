@@ -7,8 +7,9 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { HRPortalProvider, useHRPortal } from "../context/HRPortalContext";
 import { performLogout, startInactivityTimer, apiFetch } from "../utils/auth";
-import HREmployeesPage from "../components/HRPortal/EmployeesPage";
-import HRPayrollPage   from "../components/HRPortal/PayrollPage";
+import HREmployeesPage   from "../components/HRPortal/EmployeesPage";
+import HRPayrollPage     from "../components/HRPortal/PayrollPage";
+import HRAttendancePage  from "../components/HRPortal/AttendancePage";
 
 // ── Palette & design tokens ───────────────────────────────────────────────────
 const COLORS = {
@@ -1439,6 +1440,43 @@ function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit }) {
 // ── Edit Employee Modal (used from dashboard detail view) ─────────────────────
 // A focused modal for editing banking details + key employee info.
 // Uses the same API endpoints as EmployeesPage.
+
+// Defined OUTSIDE EditEmployeeModal to prevent remount on every keystroke (fixes one-char-at-a-time bug)
+const _editInputStyle = {
+  width: "100%", padding: "10px 13px", border: "1.5px solid #e2e8f0",
+  borderRadius: 9, fontSize: 13.5, fontFamily: "'DM Sans',sans-serif",
+  color: "#0f172a", background: "#fafbff", outline: "none", boxSizing: "border-box",
+};
+const _editLabelStyle = {
+  display: "block", fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+  letterSpacing: 0.7, color: "#64748b", marginBottom: 6, fontFamily: "'DM Sans',sans-serif",
+};
+function _EditField({ label, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={_editLabelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+function _EditInput({ value, onChange, type = "text", placeholder = "" }) {
+  return (
+    <input style={_editInputStyle} type={type} value={value}
+      onChange={e => onChange(e.target.value)} placeholder={placeholder}
+      onFocus={e => { e.target.style.borderColor = "#1557b0"; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
+      onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.boxShadow = "none"; }}
+    />
+  );
+}
+function _EditSelect({ value, onChange, options, placeholder }) {
+  return (
+    <select style={{ ..._editInputStyle, cursor: "pointer" }} value={value} onChange={e => onChange(e.target.value)}>
+      {placeholder && <option value="">{placeholder}</option>}
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
 function EditEmployeeModal({ employee, departments, onClose, showToast, onSave }) {
   const API = "http://127.0.0.1:8000/api";
   const [busy, setBusy] = useState(false);
@@ -1466,34 +1504,11 @@ function EditEmployeeModal({ employee, departments, onClose, showToast, onSave }
 
   const set = k => v => setForm(f => ({ ...f, [k]: v }));
 
-  const inputStyle = {
-    width: "100%", padding: "10px 13px", border: "1.5px solid #e2e8f0",
-    borderRadius: 9, fontSize: 13.5, fontFamily: "'DM Sans',sans-serif",
-    color: "#0f172a", background: "#fafbff", outline: "none", boxSizing: "border-box",
-  };
-  const labelStyle = {
-    display: "block", fontSize: 10, fontWeight: 700, textTransform: "uppercase",
-    letterSpacing: 0.7, color: "#64748b", marginBottom: 6, fontFamily: "'DM Sans',sans-serif",
-  };
-  const Field = ({ label, children }) => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={labelStyle}>{label}</label>
-      {children}
-    </div>
-  );
-  const Input = ({ value, onChange, type = "text", placeholder = "" }) => (
-    <input style={inputStyle} type={type} value={value}
-      onChange={e => onChange(e.target.value)} placeholder={placeholder}
-      onFocus={e => { e.target.style.borderColor = "#1557b0"; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
-      onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.boxShadow = "none"; }}
-    />
-  );
-  const Select = ({ value, onChange, options, placeholder }) => (
-    <select style={{ ...inputStyle, cursor: "pointer" }} value={value} onChange={e => onChange(e.target.value)}>
-      {placeholder && <option value="">{placeholder}</option>}
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
-  );
+  // Aliases so the JSX below stays unchanged
+  const inputStyle = _editInputStyle;
+  const Field = _EditField;
+  const Input = _EditInput;
+  const Select = _EditSelect;
 
   const tabs = [
     { key: "banking",    label: "🏦 Banking & Salary" },
@@ -2562,14 +2577,7 @@ function HRPortalInner() {
         <HREmployeesPage showToast={showToast} isHRM={isHRM} />
       );
       case "attendance": return (
-        <PlaceholderPage name="Attendance" icon={
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
-            <line x1="3" y1="10" x2="21" y2="10" />
-            <polyline points="9 16 11 18 15 14" />
-          </svg>
-        } />
+        <HRAttendancePage showToast={showToast} />
       );
       case "payroll":    return (
         <HRPayrollPage showToast={showToast} />
