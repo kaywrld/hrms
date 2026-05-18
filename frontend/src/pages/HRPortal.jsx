@@ -7,6 +7,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { HRPortalProvider, useHRPortal } from "../context/HRPortalContext";
 import { performLogout, startInactivityTimer, apiFetch } from "../utils/auth";
+import HREmployeesPage from "../components/HRPortal/EmployeesPage";
 
 // ── Palette & design tokens ───────────────────────────────────────────────────
 const COLORS = {
@@ -930,7 +931,7 @@ function EmployeeAvatar({ emp, size = 32 }) {
 }
 
 // ── Employee Detail Inline View ───────────────────────────────────────────────
-function EmployeeDetailView({ emp, onBack, loadingDetail }) {
+function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit }) {
   if (!emp) return null;
 
   const getFullName = (e) => e.full_name || [e.first_name, e.middle_name, e.last_name].filter(Boolean).join(" ") || "—";
@@ -968,6 +969,16 @@ function EmployeeDetailView({ emp, onBack, loadingDetail }) {
   const monthsWorked = dateJoined
     ? Math.max(0, (now.getFullYear() - dateJoined.getFullYear()) * 12 + (now.getMonth() - dateJoined.getMonth()))
     : null;
+
+  // Fetch payroll for this employee (bank + salary details)
+  const [payroll, setPayroll] = useState(emp.payroll || null);
+  useEffect(() => {
+    if (payroll) return; // already have it
+    apiFetch(`http://127.0.0.1:8000/api/payroll/employee/${emp.id}/`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setPayroll(d); })
+      .catch(() => {});
+  }, [emp.id]);
 
   const InfoRow = ({ label, value, valueColor }) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start",
@@ -1010,8 +1021,8 @@ function EmployeeDetailView({ emp, onBack, loadingDetail }) {
         </div>
       )}
 
-      {/* Back button */}
-      <div>
+      {/* Back button + Edit button */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <button
           onClick={onBack}
           style={{
@@ -1030,6 +1041,28 @@ function EmployeeDetailView({ emp, onBack, loadingDetail }) {
           </svg>
           Back to Dashboard
         </button>
+        {onEdit && (
+          <button
+            onClick={() => onEdit(emp)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              padding: "9px 18px", borderRadius: 10, border: "none",
+              background: "linear-gradient(135deg,#0a2a5e,#1557b0)",
+              color: "#fff", fontSize: 13, fontWeight: 600,
+              fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(21,87,176,0.25)",
+              transition: "opacity 0.15s, transform 0.15s",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "0.88"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "none"; }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Edit Employee
+          </button>
+        )}
       </div>
 
       {/* Profile header card */}
@@ -1205,16 +1238,35 @@ function EmployeeDetailView({ emp, onBack, loadingDetail }) {
         <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0",
           boxShadow: "0 1px 6px rgba(0,0,0,0.05)", padding: "22px 28px" }}>
           <SectionTitle>Payroll &amp; Bank</SectionTitle>
-          {(emp.bank_name || emp.bank || emp.bank_account || emp.account_number || emp.net_salary || emp.basic_salary || emp.salary) ? (
+          {payroll ? (
             <>
-              {(emp.bank_name || emp.bank) && <InfoRow label="Bank"         value={emp.bank_name || emp.bank} />}
-              {(emp.bank_account || emp.account_number) && <InfoRow label="Account"      value={emp.bank_account || emp.account_number} />}
-              {emp.basic_salary  && <InfoRow label="Basic Salary"  value={`${emp.currency || "$"}${Number(emp.basic_salary).toLocaleString()}`} />}
-              {emp.allowances    && <InfoRow label="Allowances"    value={`${emp.currency || "$"}${Number(emp.allowances).toLocaleString()}`} />}
-              {emp.deductions    && <InfoRow label="Deductions"    value={`${emp.currency || "$"}${Number(emp.deductions).toLocaleString()}`} />}
-              {emp.net_salary    && <InfoRow label="Net Salary"    value={`${emp.currency || "$"}${Number(emp.net_salary).toLocaleString()}`} valueColor="#166534" />}
-              {(emp.salary && !emp.basic_salary) && <InfoRow label="Salary"       value={`$${Number(emp.salary).toLocaleString()}`} />}
-              {/* Months worked — derived from date_joined */}
+              {/* Banking Details */}
+              <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10,
+                padding: "12px 14px", marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#0891b2", letterSpacing: "0.8px",
+                  textTransform: "uppercase", fontFamily: "'DM Sans',sans-serif", marginBottom: 10 }}>
+                  🏦 Banking Details
+                </div>
+                <InfoRow label="Bank Name"      value={payroll.bank_name    || emp.bank_name || emp.bank} />
+                <InfoRow label="Account Number" value={payroll.bank_account || emp.bank_account || emp.account_number} />
+                <InfoRow label="Currency"       value={payroll.currency || "USD"} />
+              </div>
+              {/* Salary Details */}
+              <InfoRow label="Basic Salary"  value={payroll.basic_salary
+                ? `$${Number(payroll.basic_salary).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : null} />
+              {Number(payroll.allowances) > 0 && (
+                <InfoRow label="Allowances"  value={`$${Number(payroll.allowances).toLocaleString("en-US", { minimumFractionDigits: 2 })}`} />
+              )}
+              {Number(payroll.deductions) > 0 && (
+                <InfoRow label="Deductions"  value={`$${Number(payroll.deductions).toLocaleString("en-US", { minimumFractionDigits: 2 })}`} />
+              )}
+              <InfoRow label="Net Salary"
+                value={payroll.basic_salary
+                  ? `$${(Number(payroll.basic_salary) + Number(payroll.allowances || 0) - Number(payroll.deductions || 0)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : null}
+                valueColor="#166534" />
+              {/* Months in Service bar */}
               {monthsWorked !== null && (
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #f1f5f9" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -1231,8 +1283,7 @@ function EmployeeDetailView({ emp, onBack, loadingDetail }) {
                       height: "100%",
                       width: `${Math.min(100, (monthsWorked / 120) * 100)}%`,
                       background: monthsWorked >= 60 ? "#16a34a" : monthsWorked >= 24 ? "#1557b0" : "#f59e0b",
-                      borderRadius: 99,
-                      transition: "width 0.8s cubic-bezier(.4,0,.2,1)",
+                      borderRadius: 99, transition: "width 0.8s cubic-bezier(.4,0,.2,1)",
                     }} />
                   </div>
                   <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4, fontFamily: "'DM Sans',sans-serif" }}>
@@ -1242,8 +1293,13 @@ function EmployeeDetailView({ emp, onBack, loadingDetail }) {
               )}
             </>
           ) : (
-            <div style={{ color: "#cbd5e1", fontSize: 13, fontFamily: "'DM Sans',sans-serif",
-              padding: "16px 0", textAlign: "center" }}>No payroll information available</div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 0", gap: 8 }}>
+              <div style={{ width: 28, height: 28, border: "2.5px solid #e8edf8", borderTopColor: "#1557b0",
+                borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+              <span style={{ color: "#cbd5e1", fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
+                Loading payroll…
+              </span>
+            </div>
           )}
         </div>
       </div>
@@ -1377,9 +1433,298 @@ function EmployeeDetailView({ emp, onBack, loadingDetail }) {
   );
 }
 
+// ── Edit Employee Modal (used from dashboard detail view) ─────────────────────
+// A focused modal for editing banking details + key employee info.
+// Uses the same API endpoints as EmployeesPage.
+function EditEmployeeModal({ employee, departments, onClose, showToast, onSave }) {
+  const API = "http://127.0.0.1:8000/api";
+  const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState("banking"); // "banking" | "personal" | "employment"
+
+  const [form, setForm] = useState({
+    // Banking (payroll)
+    bank_name:    employee?.payroll?.bank_name    || "",
+    bank_account: employee?.payroll?.bank_account || "",
+    monthly_salary: employee?.payroll?.basic_salary || employee?.basic_salary || "",
+    // Personal
+    phone_number:  employee?.phone_number  || "",
+    email:         employee?.email         || "",
+    address:       employee?.address       || "",
+    // Next of Kin
+    nok_full_name:    employee?.nok_full_name    || "",
+    nok_relationship: employee?.nok_relationship || "",
+    nok_phone:        employee?.nok_phone        || "",
+    nok_email:        employee?.nok_email        || "",
+    // Employment
+    job_title:    employee?.job_title      || "",
+    status:       employee?.status         || "employed",
+    department:   String(employee?.department || ""),
+  });
+
+  const set = k => v => setForm(f => ({ ...f, [k]: v }));
+
+  const inputStyle = {
+    width: "100%", padding: "10px 13px", border: "1.5px solid #e2e8f0",
+    borderRadius: 9, fontSize: 13.5, fontFamily: "'DM Sans',sans-serif",
+    color: "#0f172a", background: "#fafbff", outline: "none", boxSizing: "border-box",
+  };
+  const labelStyle = {
+    display: "block", fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+    letterSpacing: 0.7, color: "#64748b", marginBottom: 6, fontFamily: "'DM Sans',sans-serif",
+  };
+  const Field = ({ label, children }) => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+  const Input = ({ value, onChange, type = "text", placeholder = "" }) => (
+    <input style={inputStyle} type={type} value={value}
+      onChange={e => onChange(e.target.value)} placeholder={placeholder}
+      onFocus={e => { e.target.style.borderColor = "#1557b0"; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
+      onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.boxShadow = "none"; }}
+    />
+  );
+  const Select = ({ value, onChange, options, placeholder }) => (
+    <select style={{ ...inputStyle, cursor: "pointer" }} value={value} onChange={e => onChange(e.target.value)}>
+      {placeholder && <option value="">{placeholder}</option>}
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+
+  const tabs = [
+    { key: "banking",    label: "🏦 Banking & Salary" },
+    { key: "personal",   label: "👤 Personal" },
+    { key: "nok",        label: "🆘 Next of Kin" },
+    { key: "employment", label: "💼 Employment" },
+  ];
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      // 1. Save employee fields (PATCH)
+      const empBody = new FormData();
+      if (form.phone_number) empBody.append("phone_number", form.phone_number);
+      if (form.email)        empBody.append("email", form.email);
+      if (form.address)      empBody.append("address", form.address);
+      if (form.job_title)    empBody.append("job_title", form.job_title);
+      if (form.status)       empBody.append("status", form.status);
+      if (form.department)   empBody.append("department", form.department);
+      // Next of Kin fields
+      empBody.append("nok_full_name",    form.nok_full_name    || "");
+      empBody.append("nok_relationship", form.nok_relationship || "");
+      empBody.append("nok_phone",        form.nok_phone        || "");
+      empBody.append("nok_email",        form.nok_email        || "");
+
+      const token = localStorage.getItem("access_token") || "";
+      const empRes = await fetch(`${API}/employees/${employee.id}/`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+        body: empBody,
+      });
+      if (!empRes.ok) {
+        const err = await empRes.json().catch(() => ({}));
+        showToast(Object.values(err).flat().join(", ") || "Failed to update employee.", "err");
+        setBusy(false); return;
+      }
+      const updatedEmp = await empRes.json();
+
+      // 2. Save payroll (PATCH or POST)
+      const prBody = JSON.stringify({
+        employee: employee.id,
+        basic_salary: parseFloat(form.monthly_salary) || 0,
+        allowances: 0, deductions: 0,
+        bank_name:    form.bank_name    || "",
+        bank_account: form.bank_account || "",
+        currency: "USD", updated_by: "HR",
+      });
+      const prPatch = await apiFetch(`${API}/payroll/employee/${employee.id}/`, { method: "PATCH", body: prBody });
+      if (!prPatch.ok) {
+        await apiFetch(`${API}/payroll/`, { method: "POST", body: prBody });
+      }
+      const payrollData = { bank_name: form.bank_name, bank_account: form.bank_account, basic_salary: parseFloat(form.monthly_salary) || 0 };
+
+      showToast("Employee updated successfully.");
+      onSave({
+        ...updatedEmp,
+        payroll: payrollData,
+        basic_salary: parseFloat(form.monthly_salary) || 0,
+        nok_full_name: form.nok_full_name,
+        nok_relationship: form.nok_relationship,
+        nok_phone: form.nok_phone,
+        nok_email: form.nok_email,
+      });
+      onClose();
+    } catch {
+      showToast("An error occurred. Please try again.", "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(10,26,80,0.52)",zIndex:700,display:"flex",alignItems:"center",justifyContent:"center",padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:"#fff",borderRadius:18,width:"100%",maxWidth:560,boxShadow:"0 28px 72px rgba(0,0,0,0.18)",maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+        {/* Header */}
+        <div style={{ background:"linear-gradient(135deg,#0a2a5e,#1557b0)",padding:"18px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0 }}>
+          <div>
+            <span style={{ fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:"#fff" }}>
+              Edit Employee
+            </span>
+            <div style={{ fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:2,fontFamily:"'DM Sans',sans-serif" }}>
+              {[employee.first_name, employee.last_name].filter(Boolean).join(" ")}
+              {employee.employee_number ? ` · #${employee.employee_number}` : ""}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width:30,height:30,background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        {/* Tab bar */}
+        <div style={{ display:"flex",borderBottom:"1.5px solid #e2e8f0",flexShrink:0 }}>
+          {tabs.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)} style={{
+              flex:1,padding:"10px 8px",border:"none",background:"none",
+              fontSize:12.5,fontWeight:tab===t.key?700:500,
+              color:tab===t.key?"#1557b0":"#64748b",
+              borderBottom:tab===t.key?"2px solid #1557b0":"2px solid transparent",
+              cursor:"pointer",fontFamily:"'DM Sans',sans-serif",
+              marginBottom:-1.5,transition:"color 0.15s",
+            }}>{t.label}</button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div style={{ padding:24,overflowY:"auto",flex:1 }}>
+          {tab === "banking" && (
+            <>
+              <div style={{ background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:10,padding:"12px 14px",marginBottom:18 }}>
+                <div style={{ fontSize:11,fontWeight:700,color:"#0891b2",letterSpacing:"0.8px",textTransform:"uppercase",fontFamily:"'DM Sans',sans-serif",marginBottom:2 }}>
+                  Banking Details
+                </div>
+                <div style={{ fontSize:12,color:"#64748b",fontFamily:"'DM Sans',sans-serif" }}>
+                  Used for payroll processing and salary disbursement.
+                </div>
+              </div>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px" }}>
+                <Field label="Bank Name">
+                  <Input value={form.bank_name} onChange={set("bank_name")} placeholder="e.g. CBZ Bank" />
+                </Field>
+                <Field label="Account Number">
+                  <Input value={form.bank_account} onChange={set("bank_account")} placeholder="e.g. 1234567890" />
+                </Field>
+              </div>
+              <Field label="Monthly Salary (USD)">
+                <div style={{ position:"relative" }}>
+                  <span style={{ position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,fontWeight:700,color:"#1557b0",pointerEvents:"none",fontFamily:"'DM Sans',sans-serif" }}>$</span>
+                  <input style={{ ...inputStyle,paddingLeft:28 }} type="number" min="0" step="0.01"
+                    value={form.monthly_salary} onChange={e => set("monthly_salary")(e.target.value)}
+                    placeholder="0.00"
+                    onFocus={e => { e.target.style.borderColor="#1557b0"; e.target.style.boxShadow="0 0 0 3px rgba(21,87,176,0.1)"; }}
+                    onBlur={e => { e.target.style.borderColor="#e2e8f0"; e.target.style.boxShadow="none"; }}
+                  />
+                </div>
+              </Field>
+            </>
+          )}
+
+          {tab === "personal" && (
+            <>
+              <Field label="Phone Number">
+                <Input value={form.phone_number} onChange={set("phone_number")} placeholder="+263 77 123 4567" />
+              </Field>
+              <Field label="Email Address">
+                <Input type="email" value={form.email} onChange={set("email")} placeholder="email@example.com" />
+              </Field>
+              <Field label="Address">
+                <textarea value={form.address} onChange={e => set("address")(e.target.value)}
+                  rows={3} style={{ ...inputStyle, resize:"vertical" }}
+                  onFocus={e => { e.target.style.borderColor="#1557b0"; e.target.style.boxShadow="0 0 0 3px rgba(21,87,176,0.1)"; }}
+                  onBlur={e => { e.target.style.borderColor="#e2e8f0"; e.target.style.boxShadow="none"; }}
+                  placeholder="Residential address"
+                />
+              </Field>
+            </>
+          )}
+
+          {tab === "nok" && (
+            <>
+              <div style={{ background:"#fef3c7",border:"1px solid #fde68a",borderRadius:10,padding:"12px 14px",marginBottom:18 }}>
+                <div style={{ fontSize:11,fontWeight:700,color:"#92400e",letterSpacing:"0.8px",textTransform:"uppercase",fontFamily:"'DM Sans',sans-serif",marginBottom:2 }}>
+                  Next of Kin / Emergency Contact
+                </div>
+                <div style={{ fontSize:12,color:"#78350f",fontFamily:"'DM Sans',sans-serif" }}>
+                  Contact person to notify in case of emergency.
+                </div>
+              </div>
+              <Field label="Full Name">
+                <Input value={form.nok_full_name} onChange={set("nok_full_name")} placeholder="e.g. Jane Doe" />
+              </Field>
+              <Field label="Relationship">
+                <Select value={form.nok_relationship} onChange={set("nok_relationship")} placeholder="Select relationship"
+                  options={[
+                    { value:"spouse",   label:"Spouse"   },
+                    { value:"parent",   label:"Parent"   },
+                    { value:"sibling",  label:"Sibling"  },
+                    { value:"child",    label:"Child"    },
+                    { value:"guardian", label:"Guardian" },
+                    { value:"friend",   label:"Friend"   },
+                    { value:"other",    label:"Other"    },
+                  ]} />
+              </Field>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px" }}>
+                <Field label="Phone Number">
+                  <Input value={form.nok_phone} onChange={set("nok_phone")} placeholder="+263 77 123 4567" />
+                </Field>
+                <Field label="Email Address">
+                  <Input type="email" value={form.nok_email} onChange={set("nok_email")} placeholder="email@example.com" />
+                </Field>
+              </div>
+            </>
+          )}
+
+          {tab === "employment" && (
+            <>
+              <Field label="Job Title">
+                <Input value={form.job_title} onChange={set("job_title")} placeholder="e.g. Site Engineer" />
+              </Field>
+              <Field label="Department">
+                <Select value={form.department} onChange={set("department")} placeholder="Select department"
+                  options={(departments || []).map(d => ({ value: String(d.id), label: d.name }))} />
+              </Field>
+              <Field label="Status">
+                <Select value={form.status} onChange={set("status")} options={[
+                  { value:"employed",  label:"Employed"  },
+                  { value:"retired",   label:"Retired"   },
+                  { value:"dismissed", label:"Dismissed" },
+                  { value:"resigned",  label:"Resigned"  },
+                  { value:"suspended", label:"Suspended" },
+                ]} />
+              </Field>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ display:"flex",justifyContent:"flex-end",gap:10,padding:"16px 24px",borderTop:"1px solid #e2e8f0",flexShrink:0,background:"#fafbff" }}>
+          <button onClick={onClose} style={{ padding:"10px 22px",borderRadius:10,border:"1px solid #e2e8f0",background:"#f1f5f9",color:"#0f172a",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,cursor:"pointer" }}>
+            Cancel
+          </button>
+          <button onClick={save} disabled={busy} style={{ padding:"10px 22px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0a2a5e,#1557b0)",color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:600,cursor:busy?"not-allowed":"pointer",opacity:busy?0.6:1 }}>
+            {busy ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
-function Dashboard() {
-  const { stats, employees, departments, loading, errors, fetchEmployeeDetail } = useHRPortal();
+function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
+  const { stats, employees, departments, loading, errors, fetchEmployeeDetail, isHRM: ctxIsHRM } = useHRPortal();
+  const isHRM = isHRMProp !== undefined ? isHRMProp : ctxIsHRM;
 
   // ── ALL hooks must come before any conditional return ──
   const [selectedEmp,     setSelectedEmp]     = useState(null);
@@ -1397,6 +1742,7 @@ function Dashboard() {
     if (full) setSelectedEmp(full);
     setLoadingDetail(false);
   };
+
 
   const deptOptions = useMemo(() => {
     if (!departments) return [];
@@ -1445,7 +1791,14 @@ function Dashboard() {
 
   // Show employee detail view inline (replaces dashboard)
   if (selectedEmp) {
-    return <EmployeeDetailView emp={selectedEmp} loadingDetail={loadingDetail} onBack={() => setSelectedEmp(null)} />;
+    return (
+      <EmployeeDetailView
+        emp={selectedEmp}
+        loadingDetail={loadingDetail}
+        onBack={() => setSelectedEmp(null)}
+        onEdit={isHRM && onEditEmployee ? () => onEditEmployee(selectedEmp, setSelectedEmp) : null}
+      />
+    );
   }
 
   if (allLoading && !stats) {
@@ -2162,12 +2515,18 @@ function PlaceholderPage({ name, icon }) {
 
 // ── Inner portal (has access to context) ─────────────────────────────────────
 function HRPortalInner() {
-  const { user, isHRM } = useHRPortal();
+  const { user, isHRM, departments } = useHRPortal();
   const [page,       setPage]       = useState("dashboard");
   const [sideOpen,   setSideOpen]   = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [toast,      setToast]      = useState(null);
   const [modal,      setModal]      = useState(null); // "profile" | "password"
+  const [editingEmpDash, setEditingEmpDash] = useState(null);
+  const [onSaveCallback, setOnSaveCallback] = useState(null);
+
+  const handleDashboardEdit = (emp, setSelectedEmpFn) => {
+    setEditingEmpDash({ emp, setSelectedEmpFn });
+  };
 
   // First-login forced password change (mirrors DeptPortal pattern)
   const needsPwChange = localStorage.getItem("dp_must_change_pw") === "true";
@@ -2187,7 +2546,7 @@ function HRPortalInner() {
 
   const renderPage = () => {
     switch (page) {
-      case "dashboard":  return <Dashboard />;
+      case "dashboard":  return <Dashboard showToast={showToast} isHRM={isHRM} onEditEmployee={handleDashboardEdit} />;
       case "admins":     return (
         <PlaceholderPage name="Admin Management" icon={
           <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -2197,11 +2556,7 @@ function HRPortalInner() {
         } />
       );
       case "employees":  return (
-        <PlaceholderPage name="Employees" icon={
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-          </svg>
-        } />
+        <HREmployeesPage showToast={showToast} isHRM={isHRM} />
       );
       case "attendance": return (
         <PlaceholderPage name="Attendance" icon={
@@ -2430,6 +2785,21 @@ function HRPortalInner() {
       {toast && (
         <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />
       )}
+
+      {/* Edit Employee modal from dashboard detail view */}
+      {editingEmpDash && (
+        <EditEmployeeModal
+          employee={editingEmpDash.emp}
+          departments={departments || []}
+          onClose={() => setEditingEmpDash(null)}
+          showToast={showToast}
+          onSave={(updated) => {
+            editingEmpDash.setSelectedEmpFn(prev => prev ? { ...prev, ...updated } : updated);
+            setEditingEmpDash(null);
+          }}
+        />
+      )}
+
 
       {/* First-login forced password change popup */}
       {showFirstLoginModal && (
