@@ -8,6 +8,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { HRPortalProvider, useHRPortal } from "../context/HRPortalContext";
 import { performLogout, startInactivityTimer, apiFetch } from "../utils/auth";
 import HREmployeesPage from "../components/HRPortal/EmployeesPage";
+import HRPayrollPage   from "../components/HRPortal/PayrollPage";
 
 // ── Palette & design tokens ───────────────────────────────────────────────────
 const COLORS = {
@@ -304,16 +305,18 @@ function Sidebar({ page, setPage, sideOpen, user, isHRM, mobileOpen, setMobileOp
   const roleBadge = isHRM ? "HR Manager" : "HR Officer";
 
   return (
-    <aside style={{
-      width: sideOpen ? 220 : 64,
-      position: "fixed",
-      top: 0, left: 0, bottom: 0,
-      zIndex: 200,
-      background: "linear-gradient(180deg, #1a6fd4 0%, #1557b0 25%, #0e3d82 55%, #0a2a5e 100%)",
-      display: "flex", flexDirection: "column",
-      transition: "width 0.28s cubic-bezier(.4,0,.2,1), transform 0.28s cubic-bezier(.4,0,.2,1)",
-      overflow: "hidden",
-    }}>
+    <aside
+      className={`hr-sidebar-mobile${mobileOpen ? " open" : ""}`}
+      style={{
+        width: sideOpen ? 220 : 64,
+        position: "fixed",
+        top: 0, left: 0, bottom: 0,
+        zIndex: 200,
+        background: "linear-gradient(180deg, #1a6fd4 0%, #1557b0 25%, #0e3d82 55%, #0a2a5e 100%)",
+        display: "flex", flexDirection: "column",
+        transition: "width 0.28s cubic-bezier(.4,0,.2,1), transform 0.28s cubic-bezier(.4,0,.2,1)",
+        overflow: "hidden",
+      }}>
       {/* Logo / branding */}
       <div style={{
         padding: "0 14px",
@@ -1826,7 +1829,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
   const s = stats || {};
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24, paddingLeft: 24 }}>
 
       {/* Page header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
@@ -2257,7 +2260,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
 function ProfilePage({ user, initials, isHRM, onEdit, onPassword }) {
   const roleBadge = isHRM ? "HR Manager" : "HR Officer";
   return (
-    <>
+    <div style={{ paddingLeft: 24 }}>
       <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0",
         boxShadow: "0 1px 6px rgba(0,0,0,0.05)", padding: "28px 32px", marginBottom: 18, maxWidth: 680 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", marginBottom: 24 }}>
@@ -2340,7 +2343,7 @@ function ProfilePage({ user, initials, isHRM, onEdit, onPassword }) {
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -2494,7 +2497,7 @@ function ChangePasswordModal({ onClose, showToast, onSuccess }) {
 function PlaceholderPage({ name, icon }) {
   return (
     <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center",
+      display: "flex", flexDirection: "column", alignItems: "center", paddingLeft: 24,
       justifyContent: "center", height: 360,
       color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", gap: 16,
     }}>
@@ -2569,13 +2572,7 @@ function HRPortalInner() {
         } />
       );
       case "payroll":    return (
-        <PlaceholderPage name="Payroll" icon={
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-            <rect x="2" y="5" width="20" height="14" rx="2" />
-            <line x1="2" y1="10" x2="22" y2="10" />
-            <line x1="6" y1="15" x2="10" y2="15" />
-          </svg>
-        } />
+        <HRPayrollPage showToast={showToast} />
       );
       case "profile":    return (
         <ProfilePage
@@ -2629,7 +2626,7 @@ function HRPortalInner() {
           .hr-sidebar-mobile { transform: translateX(-100%) !important; width: 220px !important; }
           .hr-sidebar-mobile.open { transform: translateX(0) !important; }
           .hr-main-mobile { margin-left: 0 !important; }
-          .hr-page-pad { padding: 14px !important; }
+          .hr-page-pad { padding: 14px 14px 14px 0 !important; }
           .hr-topbar-pad { padding: 0 14px !important; }
         }
         @media (max-width: 600px) {
@@ -2645,25 +2642,19 @@ function HRPortalInner() {
         onClick={() => setMobileOpen(false)}
       />
 
-      <div style={{ display: "flex", minHeight: "100vh", background: "#f8faff" }}>
+      <div style={{ minHeight: "100vh", background: "#f8faff" }}>
 
-        {/* ── SIDEBAR ── */}
-        <div
-          className={`hr-sidebar-mobile${mobileOpen ? " open" : ""}`}
-          style={{ flexShrink: 0 }}
-        >
-          <Sidebar
-            page={page} setPage={setPage}
-            sideOpen={sideOpen} user={user} isHRM={isHRM}
-            mobileOpen={mobileOpen} setMobileOpen={setMobileOpen}
-          />
-        </div>
+        {/* ── SIDEBAR (position: fixed, outside normal flow) ── */}
+        <Sidebar
+          page={page} setPage={setPage}
+          sideOpen={sideOpen} user={user} isHRM={isHRM}
+          mobileOpen={mobileOpen} setMobileOpen={setMobileOpen}
+        />
 
         {/* ── MAIN ── */}
         <div
           className="hr-main-mobile"
           style={{
-            flex: 1,
             marginLeft: sideWidth,
             display: "flex", flexDirection: "column",
             minHeight: "100vh",
@@ -2743,7 +2734,7 @@ function HRPortalInner() {
           {/* Scrollable content */}
           <main
             className="hr-page-pad"
-            style={{ flex: 1, padding: "24px 14px 28px 14px" }}
+            style={{ flex: 1, padding: "24px 24px 28px 0" }}
           >
             {/* First-login password change banner */}
             {mustChangePw && (

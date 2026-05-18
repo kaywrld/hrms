@@ -26,12 +26,16 @@ class AttendanceListCreateView(generics.ListCreateAPIView):
 
         # Optional filters from query params
         date       = self.request.query_params.get('date')
+        date_after = self.request.query_params.get('date_after')
+        date_before = self.request.query_params.get('date_before')
         employee   = self.request.query_params.get('employee')
         department = self.request.query_params.get('department')
 
-        if date:       qs = qs.filter(date=date)
-        if employee:   qs = qs.filter(employee_id=employee)
-        if department: qs = qs.filter(employee__department_id=department)
+        if date:        qs = qs.filter(date=date)
+        if date_after:  qs = qs.filter(date__gte=date_after)
+        if date_before: qs = qs.filter(date__lte=date_before)
+        if employee:    qs = qs.filter(employee_id=employee)
+        if department:  qs = qs.filter(employee__department_id=department)
 
         return qs.order_by('-date')
 
