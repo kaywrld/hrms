@@ -156,3 +156,68 @@ export const startInactivityTimer = () => {
     events.forEach(e => window.removeEventListener(e, reset));
   };
 };
+
+// ─── Proactive Token Refresh ──────────────────────────────────────────────────
+// Silently refreshes the access token every 8 minutes while the user is active.
+// This keeps last_activity current on the backend (updated on every refresh),
+// which prevents the session from being incorrectly flagged as abandoned.
+//
+// Call `startTokenRefreshTimer()` alongside startInactivityTimer() in every
+// portal's useEffect. It returns a cleanup function.
+//
+// Must NOT run if the user is inactive — so it checks user activity first.
+
+const REFRESH_INTERVAL_MS = 8 * 60 * 1000; // 8 minutes (access token lives 10 min)
+
+export const startTokenRefreshTimer = () => {
+  let lastActivity = Date.now();
+  let interval = null;
+
+  // Track when user was last active
+  const markActive = () => { lastActivity = Date.now(); };
+  const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
+  events.forEach(e => window.addEventListener(e, markActive, { passive: true }));
+
+  interval = setInterval(async () => {
+    // Only refresh if user has been active in the last 10 minutes
+    const idleSecs = (Date.now() - lastActivity) / 1000;
+    if (idleSecs > 600) return; // they're idle — let the inactivity timer handle logout
+
+    const refreshTokenValue = getRefresh();
+    if (!refreshTokenValue) return;
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/auth/token/refresh/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh: refreshTokenValue }),
+      });
+
+      if (!res.ok) {
+        // session_invalidated means another device took over — kick out
+        if (res.status === 401) {
+          let reason = "session_invalidated";
+          try {
+            const body = await res.json();
+            if (body?.code === "session_invalidated") reason = "session_invalidated";
+          } catch { /* ignore */ }
+          clearSession();
+          sessionStorage.setItem("logout_reason", reason);
+          window.location.href = "/";
+        }
+        return;
+      }
+
+      const data = await res.json();
+      localStorage.setItem("access_token", data.access);
+      if (data.refresh) localStorage.setItem("refresh_token", data.refresh);
+    } catch {
+      // Network error — silently ignore, apiFetch will handle the retry
+    }
+  }, REFRESH_INTERVAL_MS);
+
+  return () => {
+    clearInterval(interval);
+    events.forEach(e => window.removeEventListener(e, markActive));
+  };
+};

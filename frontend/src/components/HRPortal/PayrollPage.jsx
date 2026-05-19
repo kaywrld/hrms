@@ -13,6 +13,7 @@
 //  - localStorage for deduction/bonus persistence per employee per month
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { apiFetch } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
 
@@ -88,9 +89,9 @@ function loadPayrollEntry(empId, year, month) {
   try {
     const key = getStorageKey(empId, year, month);
     const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : { deduction: "", bonus: "" };
+    return stored ? JSON.parse(stored) : { deduction: "", bonus: "", deductionReason: "" };
   } catch {
-    return { deduction: "", bonus: "" };
+    return { deduction: "", bonus: "", deductionReason: "" };
   }
 }
 
@@ -243,6 +244,205 @@ function EditableCell({ value, onChange, onBlur, placeholder = "0.00", prefix = 
         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
       </svg>
+    </div>
+  );
+}
+
+// ── Deduction cell with required reason popover ───────────────────────────────
+function DeductionCell({ value, reason, onSave, placeholder = "Add deduction", prefix = "$" }) {
+  const [open, setOpen]         = useState(false);
+  const [localAmt, setLocalAmt] = useState(value);
+  const [localReason, setLocalReason] = useState(reason);
+  const popoverRef = useRef();
+
+  // Sync from parent when external changes arrive
+  useEffect(() => { setLocalAmt(value); },  [value]);
+  useEffect(() => { setLocalReason(reason); }, [reason]);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = e => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        setOpen(false);
+        // Reset unsaved changes
+        setLocalAmt(value);
+        setLocalReason(reason);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open, value, reason]);
+
+  const handleSave = () => {
+    const amt = localAmt.toString().trim();
+    const rsn = localReason.trim();
+    if (amt && parseFloat(amt) > 0 && !rsn) {
+      // Shake the reason field — handled via inline state
+      setReasonError(true);
+      return;
+    }
+    setReasonError(false);
+    onSave(amt, rsn);
+    setOpen(false);
+  };
+
+  const handleClear = () => {
+    setLocalAmt("");
+    setLocalReason("");
+    setReasonError(false);
+    onSave("", "");
+    setOpen(false);
+  };
+
+  const [reasonError, setReasonError] = useState(false);
+
+  const numVal  = parseFloat(value);
+  const hasValue = !isNaN(numVal) && numVal > 0;
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      {/* Trigger — looks identical to original EditableCell display */}
+      <div
+        onClick={() => setOpen(true)}
+        title="Click to set deduction"
+        style={{
+          display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
+          padding: "5px 9px", borderRadius: 8, minWidth: 72,
+          border: `1.5px solid ${hasValue ? "#fca5a5" : "#e2e8f0"}`,
+          background: hasValue ? "#fff5f5" : "#fafbff",
+          transition: "border-color 0.15s, background 0.15s",
+          justifyContent: "space-between",
+        }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = "#1557b0"; e.currentTarget.style.background = "#eff6ff"; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = hasValue ? "#fca5a5" : "#e2e8f0"; e.currentTarget.style.background = hasValue ? "#fff5f5" : "#fafbff"; }}
+      >
+        {hasValue ? (
+          <span style={{ fontSize: 12.5, fontFamily: "monospace", color: "#dc2626", fontWeight: 600 }}>
+            {prefix}{numVal.toFixed(2)}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11.5, color: "#cbd5e1", fontFamily: "'DM Sans',sans-serif", fontStyle: "italic" }}>
+            {placeholder}
+          </span>
+        )}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" style={{ flexShrink: 0 }}>
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+        </svg>
+      </div>
+
+      {/* Popover */}
+      {open && (
+        <div
+          ref={popoverRef}
+          style={{
+            position: "absolute", zIndex: 9999, right: 0, top: "calc(100% + 6px)",
+            background: "#fff", borderRadius: 12,
+            border: "1.5px solid #e2e8f0",
+            boxShadow: "0 8px 32px rgba(10,42,94,0.14)",
+            padding: "16px", width: 260,
+            fontFamily: "'DM Sans',sans-serif",
+          }}
+        >
+          {/* Arrow */}
+          <div style={{
+            position: "absolute", top: -8, right: 14,
+            width: 14, height: 14, background: "#fff",
+            border: "1.5px solid #e2e8f0", borderBottom: "none", borderRight: "none",
+            transform: "rotate(45deg)", borderRadius: 2,
+          }} />
+
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8", marginBottom: 10 }}>
+            Set Deduction
+          </div>
+
+          {/* Amount */}
+          <label style={{ fontSize: 11.5, color: "#64748b", fontWeight: 600, display: "block", marginBottom: 4 }}>
+            Amount (USD)
+          </label>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <span style={{ fontSize: 13, color: "#94a3b8" }}>$</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={localAmt}
+              onChange={e => { setLocalAmt(e.target.value); setReasonError(false); }}
+              onKeyDown={e => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") { setOpen(false); setLocalAmt(value); setLocalReason(reason); }}}
+              placeholder="0.00"
+              autoFocus
+              style={{
+                flex: 1, padding: "7px 10px",
+                border: "1.5px solid #e2e8f0", borderRadius: 8,
+                fontSize: 13, outline: "none", background: "#fafbff", color: "#0f172a",
+              }}
+            />
+          </div>
+
+          {/* Reason */}
+          <label style={{ fontSize: 11.5, color: "#64748b", fontWeight: 600, display: "block", marginBottom: 4 }}>
+            Reason <span style={{ color: "#dc2626" }}>*</span>
+          </label>
+          <textarea
+            value={localReason}
+            onChange={e => { setLocalReason(e.target.value); setReasonError(false); }}
+            placeholder="e.g. Late penalty, loan repayment…"
+            rows={3}
+            style={{
+              width: "100%", padding: "7px 10px", boxSizing: "border-box",
+              border: `1.5px solid ${reasonError ? "#dc2626" : "#e2e8f0"}`,
+              borderRadius: 8, fontSize: 12.5, resize: "vertical",
+              outline: "none", background: reasonError ? "#fff5f5" : "#fafbff",
+              color: "#0f172a", fontFamily: "'DM Sans',sans-serif",
+              boxShadow: reasonError ? "0 0 0 3px rgba(220,38,38,0.1)" : "none",
+              transition: "border-color 0.15s, box-shadow 0.15s",
+            }}
+          />
+          {reasonError && (
+            <div style={{ fontSize: 11, color: "#dc2626", marginTop: 3 }}>
+              A reason is required when adding a deduction.
+            </div>
+          )}
+
+          {/* Buttons */}
+          <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+            <button
+              onClick={handleSave}
+              style={{
+                flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
+                background: "linear-gradient(135deg,#1557b0,#1a6fd4)",
+                color: "#fff", fontWeight: 700, fontSize: 12.5,
+                cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+              }}
+            >
+              Save
+            </button>
+            {hasValue && (
+              <button
+                onClick={handleClear}
+                style={{
+                  padding: "8px 12px", borderRadius: 8, border: "1.5px solid #fca5a5",
+                  background: "#fff5f5", color: "#dc2626", fontWeight: 600,
+                  fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+                }}
+              >
+                Clear
+              </button>
+            )}
+            <button
+              onClick={() => { setOpen(false); setLocalAmt(value); setLocalReason(reason); }}
+              style={{
+                padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0",
+                background: "#f8fafc", color: "#64748b", fontWeight: 600,
+                fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -412,6 +612,9 @@ function downloadPDF(rows, monthLabel, currency, zigRate) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function HRPayrollPage({ showToast }) {
+  const [, setSearchParams] = useSearchParams();
+  const goToPayslips = () => setSearchParams({ page: "payslips" }, { replace: false });
+
   // ── Context data ──────────────────────────────────────────────────────────
   const {
     employees: ctxEmployees,
@@ -571,6 +774,7 @@ export default function HRPayrollPage({ showToast }) {
         netSalary, deduction, bonus, finalPay,
         deductionStr: edits.deduction || "",
         bonusStr:     edits.bonus || "",
+        deductionReason: edits.deductionReason || "",
       };
     });
   }, [ctxEmployees, payrollMap, attendanceMap, workingDays, departments, payrollEdits]);
@@ -680,6 +884,27 @@ export default function HRPayrollPage({ showToast }) {
                 </button>
               )}
             </div>
+
+            {/* ── View Payslips ── */}
+            <button
+              onClick={goToPayslips}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "9px 16px", borderRadius: 10,
+                background: "linear-gradient(135deg,#0a2a5e,#1557b0)",
+                border: "none", color: "#fff",
+                fontSize: 13, fontWeight: 700,
+                fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+              View Payslips
+            </button>
 
             {/* ── Download ── */}
             <div style={{ position: "relative" }} ref={dlRef}>
@@ -987,9 +1212,13 @@ export default function HRPayrollPage({ showToast }) {
                       {/* Deduction (editable) */}
                       <td style={{ padding: "11px 14px", textAlign: "right" }}>
                         <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                          <EditableCell
+                          <DeductionCell
                             value={emp.deductionStr}
-                            onChange={val => updateEdit(emp.id, "deduction", val)}
+                            reason={emp.deductionReason}
+                            onSave={(amt, rsn) => {
+                              updateEdit(emp.id, "deduction", amt);
+                              updateEdit(emp.id, "deductionReason", rsn);
+                            }}
                             placeholder="Add deduction"
                             prefix="$"
                           />

@@ -8,7 +8,8 @@
 // Dashboard:    Stats cards → Charts (gender, employment status, type) → Workers table
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { apiFetch, getUser, getToken, clearSession, performLogout, startInactivityTimer } from "../utils/auth";
+import { apiFetch, getUser, getToken, clearSession, performLogout, startInactivityTimer, startTokenRefreshTimer } from "../utils/auth";
+import { useSearchParams } from "react-router-dom";
 import { DeptPortalProvider, useDeptPortal } from "../context/DeptPortalContext";
 
 const API = "http://127.0.0.1:8000/api";
@@ -126,7 +127,9 @@ function DeptPortalInner() {
   const { stats, deptName } = useDeptPortal();
   const user = getUser();
 
-  const [page,       setPage]       = useState("dashboard");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page    = searchParams.get("page") || "dashboard";
+  const setPage = (p) => setSearchParams({ page: p }, { replace: false });
   const [sideOpen,   setSideOpen]   = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [toast,      setToast]      = useState(null);
@@ -145,6 +148,7 @@ function DeptPortalInner() {
 
   // ── Inactivity auto-logout: kicks in after 10 min of no activity ──
   useEffect(() => startInactivityTimer(), []);
+  useEffect(() => startTokenRefreshTimer(), []);
 
   // ── Session displaced notice: show toast if this login kicked another session ──
   useEffect(() => {

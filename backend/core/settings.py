@@ -132,11 +132,11 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    # Access token lives exactly 10 minutes — matches the frontend inactivity timeout.
-    # If a user is active, the frontend silently refreshes it before expiry.
-    # If idle for 10 min, the token expires and they're logged out automatically.
+    # Access token: short-lived (10 min). Frontend proactively refreshes every 8 min.
+    # Refresh token: long-lived (1 day). This is what keeps the session alive.
+    # The stale-session check in serializers.py uses 24h to match this.
     'ACCESS_TOKEN_LIFETIME':   timedelta(minutes=10),
-    'REFRESH_TOKEN_LIFETIME':  timedelta(minutes=10),
+    'REFRESH_TOKEN_LIFETIME':  timedelta(hours=24),
     'ROTATE_REFRESH_TOKENS':   True,
     'BLACKLIST_AFTER_ROTATION': True,   # ← required when token_blacklist is installed
     'AUTH_HEADER_TYPES':       ('Bearer',),

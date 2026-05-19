@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { apiFetch, getUser, getToken, performLogout, startInactivityTimer } from "../utils/auth";
+import { useSearchParams } from "react-router-dom";
+import { apiFetch, getUser, getToken, performLogout, startInactivityTimer, startTokenRefreshTimer } from "../utils/auth";
 import EmployeesPage from "../components/Itportal/EmployeesPage";
 import AdminsPage   from "../components/Itportal/Adminspage";
 import { ITPortalProvider, useITPortal } from "../context/ITPortalContext";
@@ -118,7 +119,9 @@ export default function ITPortal() {
 function ITPortalInner() {
   const { stats } = useITPortal();
   const user = getUser();
-  const [page, setPage]         = useState("dashboard");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page    = searchParams.get("page") || "dashboard";
+  const setPage = (p) => setSearchParams({ page: p }, { replace: false });
   const [sideOpen, setSideOpen] = useState(true);
   const [toast, setToast]       = useState(null);
   const [modal, setModal]       = useState(null); // "profile" | "password" | "addIT"
@@ -126,6 +129,7 @@ function ITPortalInner() {
 
   // ── Inactivity auto-logout: kicks in after 10 min of no activity ──
   useEffect(() => startInactivityTimer(), []);
+  useEffect(() => startTokenRefreshTimer(), []);
 
   // ── Session displaced notice: show toast if this login kicked another session ──
   useEffect(() => {

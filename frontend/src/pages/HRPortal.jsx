@@ -6,9 +6,11 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { HRPortalProvider, useHRPortal } from "../context/HRPortalContext";
-import { performLogout, startInactivityTimer, apiFetch } from "../utils/auth";
+import { performLogout, startInactivityTimer, startTokenRefreshTimer, apiFetch } from "../utils/auth";
+import { useSearchParams } from "react-router-dom";
 import HREmployeesPage   from "../components/HRPortal/EmployeesPage";
 import HRPayrollPage     from "../components/HRPortal/PayrollPage";
+import HRPayslipsPage    from "../components/HRPortal/PayslipsPage";
 import HRAttendancePage  from "../components/HRPortal/AttendancePage";
 import HRAdminsPage     from "../components/HRPortal/HRAdminsPage";
 
@@ -281,6 +283,18 @@ const NAV_ITEMS = [
         <rect x="2" y="5" width="20" height="14" rx="2" />
         <line x1="2" y1="10" x2="22" y2="10" />
         <line x1="6" y1="15" x2="10" y2="15" />
+      </svg>
+    ),
+  },
+  {
+    key: "payslips", label: "Payslips",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+        <line x1="10" y1="9" x2="8" y2="9"/>
       </svg>
     ),
   },
@@ -2535,7 +2549,9 @@ function PlaceholderPage({ name, icon }) {
 // ── Inner portal (has access to context) ─────────────────────────────────────
 function HRPortalInner() {
   const { user, isHRM, departments } = useHRPortal();
-  const [page,       setPage]       = useState("dashboard");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page    = searchParams.get("page") || "dashboard";
+  const setPage = (p) => setSearchParams({ page: p }, { replace: false });
   const [sideOpen,   setSideOpen]   = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [toast,      setToast]      = useState(null);
@@ -2553,6 +2569,7 @@ function HRPortalInner() {
   const [mustChangePw,        setMustChangePw]        = useState(needsPwChange);
 
   useEffect(() => startInactivityTimer(), []);
+  useEffect(() => startTokenRefreshTimer(), []);
 
   const showToast = (msg, type = "ok") => setToast({ msg, type });
 
@@ -2575,6 +2592,9 @@ function HRPortalInner() {
       );
       case "payroll":    return (
         <HRPayrollPage showToast={showToast} />
+      );
+      case "payslips":   return (
+        <HRPayslipsPage showToast={showToast} />
       );
       case "profile":    return (
         <ProfilePage

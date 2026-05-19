@@ -29,9 +29,13 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         try:
             candidate = User.objects.get(username=attrs.get('username', ''))
             if candidate.active_session_jti:
+                # A session is considered stale/abandoned if last_activity hasn't
+                # been updated in over 24 hours — matching REFRESH_TOKEN_LIFETIME.
+                # The frontend refreshes every 8 min while active, so last_activity
+                # will always be recent for a genuinely live session.
                 stale = (
                     candidate.last_activity is None or
-                    (timezone.now() - candidate.last_activity).total_seconds() > 600  # 10 min
+                    (timezone.now() - candidate.last_activity).total_seconds() > 86400  # 24 hours
                 )
                 if stale:
                     # Session abandoned without logout — auto-clear it
