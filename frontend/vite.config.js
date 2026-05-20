@@ -14,4 +14,11 @@ export default defineConfig({
   optimizeDeps: {
     include: ['react', 'react-dom', 'react/jsx-runtime'],
   },
+
+  server: {
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+    }
+  }
 })

@@ -136,7 +136,7 @@ SIMPLE_JWT = {
     # Refresh token: long-lived (1 day). This is what keeps the session alive.
     # The stale-session check in serializers.py uses 24h to match this.
     'ACCESS_TOKEN_LIFETIME':   timedelta(minutes=10),
-    'REFRESH_TOKEN_LIFETIME':  timedelta(hours=24),
+    'REFRESH_TOKEN_LIFETIME':  timedelta(minutes=4),
     'ROTATE_REFRESH_TOKENS':   True,
     'BLACKLIST_AFTER_ROTATION': True,   # ← required when token_blacklist is installed
     'AUTH_HEADER_TYPES':       ('Bearer',),
