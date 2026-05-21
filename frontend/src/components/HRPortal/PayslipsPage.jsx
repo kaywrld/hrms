@@ -593,13 +593,24 @@ export default function HRPayslipsPage({ showToast }) {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
+  
+    // Last day of the viewed month at midnight
+    const viewedMonthEnd = new Date(viewYear, viewMonth + 1, 0);
+  
     return employees.filter(emp => {
+      // Parse date_joined by splitting the string to avoid UTC timezone shifting
+      if (emp.date_joined) {
+        const [jY, jM, jD] = emp.date_joined.split("-").map(Number);
+        const joinDate = new Date(jY, jM - 1, jD); // local midnight
+        if (joinDate > viewedMonthEnd) return false;
+      }
+  
       const name  = (emp.full_name || [emp.first_name, emp.last_name].filter(Boolean).join(" ")).toLowerCase();
       const dept  = (emp.department_name || "").toLowerCase();
       const title = (emp.job_title || emp.position || "").toLowerCase();
       return !q || name.includes(q) || dept.includes(q) || title.includes(q);
     });
-  }, [employees, search]);
+  }, [employees, search, viewYear, viewMonth]);
 
   const prevMonth = () => {
     if (viewMonth === 0) { setViewYear(y => y-1); setViewMonth(11); }

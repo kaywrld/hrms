@@ -10,6 +10,7 @@ class ShiftSerializer(serializers.ModelSerializer):
 
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     employee_name        = serializers.SerializerMethodField()
+    employee_job_title   = serializers.SerializerMethodField()
     shift_name           = serializers.CharField(source='shift.get_name_display', read_only=True)
     marked_by_department = serializers.SerializerMethodField()
     marked_by_full_name  = serializers.SerializerMethodField()
@@ -21,6 +22,9 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
 
     def get_employee_name(self, obj):
         return f"{obj.employee.first_name} {obj.employee.last_name}"
+
+    def get_employee_job_title(self, obj):
+        return obj.employee.job_title or None
 
     def _get_admin(self, obj):
         if not obj.marked_by:

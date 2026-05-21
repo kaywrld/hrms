@@ -42,5 +42,6 @@ class EmployeeListSerializer(serializers.ModelSerializer):
             'id', 'employee_number', 'first_name', 'last_name', 'middle_name',
             'job_title', 'department', 'department_name',
             'gender', 'phone_number', 'email',
-            'status', 'profile_picture', 'employment_type'
+            'status', 'profile_picture', 'employment_type',
+            'date_joined',
         )
