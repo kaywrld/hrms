@@ -4,6 +4,7 @@ import Login          from "./pages/Login";
 import ITPortal       from "./pages/ITPortal";
 import DeptPortal     from "./pages/DeptPortal";
 import HRPortal       from "./pages/HRPortal";
+import MDPortal       from "./pages/MDPortal";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
@@ -29,8 +30,8 @@ export default function App() {
         <Route path="/portal/hrm" element={<ProtectedRoute role="HRM"><HRPortal /></ProtectedRoute>}/>
         <Route path="/portal/hr"  element={<ProtectedRoute role="HR"><HRPortal /></ProtectedRoute>}/>
 
-        {/* Other portals — placeholders until built */}
-        <Route path="/portal/md"  element={<ProtectedRoute role="MD"><div>MD Portal</div></ProtectedRoute>}/>
+        {/* Managing Director Portal — read-only executive overview */}
+        <Route path="/portal/md"  element={<ProtectedRoute role="MD"><MDPortal /></ProtectedRoute>}/>
 
         {/* Catch all → back to login */}
         <Route path="*" element={<Login />} />
