@@ -27,22 +27,15 @@ class LoginView(TokenObtainPairView):
                 username = request.data.get('username', '')
                 user = AdminUser.objects.get(username=username)
 
-                # Decode the refresh token to extract its JTI and store it
-                # as the user's single active session identifier.
-                from rest_framework_simplejwt.tokens import RefreshToken as RT
-                refresh_obj = RT(response.data['refresh'])
-                jti = refresh_obj['jti']
-                user.active_session_jti = jti
-
+                update_fields = []
                 # Ensure IT Manager always has Django admin access.
-                # This self-heals existing accounts that pre-date this logic.
-                update_fields = ['active_session_jti']
                 if user.role == 'IT' and (not user.is_staff or not user.is_superuser):
                     user.is_staff = True
                     user.is_superuser = True
                     update_fields += ['is_staff', 'is_superuser']
 
-                user.save(update_fields=update_fields)
+                if update_fields:
+                    user.save(update_fields=update_fields)
 
                 LoginActivity.objects.create(
                     admin=user,
@@ -72,65 +65,33 @@ class LogoutView(APIView):
                 token.blacklist()
         except Exception:
             pass
-        finally:
-            # Always clear the session JTI regardless of what happened above
-            request.user.active_session_jti = None
-            request.user.save(update_fields=['active_session_jti'])
 
         return Response({'message': 'Logged out successfully'}, status=status.HTTP_200_OK)
 
 
 class ValidatedTokenRefreshView(TokenRefreshView):
     """
-    Custom refresh endpoint that rejects tokens whose JTI no longer matches
-    the user's stored active_session_jti.  This closes the gap where a user
-    who was forced out (e.g. new login from another device set a new JTI) could
-    silently keep refreshing their stale token indefinitely.
+    Custom refresh endpoint that updates last_activity on each successful
+    refresh, which feeds the 10-minute inactivity auto-logout on the frontend.
+    Multiple concurrent sessions on different devices are fully allowed.
     """
 
     def post(self, request, *args, **kwargs):
-        raw_refresh = request.data.get('refresh', '')
-        if not raw_refresh:
-            return Response({'error': 'refresh token is required.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Decode without yet validating the full chain — we only need the JTI & user_id
-        try:
-            incoming = RefreshToken(raw_refresh)
-            incoming_jti     = incoming['jti']
-            incoming_user_id = incoming['user_id']
-        except (TokenError, InvalidToken, KeyError):
-            return Response({'error': 'Invalid or expired refresh token.'}, status=status.HTTP_401_UNAUTHORIZED)
-
-        # Reject if the stored JTI no longer matches (session was superseded or cleared)
-        try:
-            user = AdminUser.objects.get(pk=incoming_user_id)
-        except AdminUser.DoesNotExist:
-            return Response({'error': 'User not found.'}, status=status.HTTP_401_UNAUTHORIZED)
-
-        if user.active_session_jti != incoming_jti:
-            return Response(
-                {
-                    'error': 'Session is no longer valid. Please log in again.',
-                    'code':  'session_invalidated',
-                },
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        # All good — let SimpleJWT do the real rotation
         response = super().post(request, *args, **kwargs)
 
-        # After rotation the old JTI is blacklisted and a new refresh token is
-        # issued.  Update active_session_jti to the new token's JTI so the next
-        # refresh still passes the check.
-        if response.status_code == 200 and 'refresh' in response.data:
-            try:
-                from django.utils import timezone  # ADD THIS
-                new_token = RefreshToken(response.data['refresh'])
-                user.active_session_jti = new_token['jti']
-                user.last_activity = timezone.now()  # ADD THIS
-                user.save(update_fields=['active_session_jti', 'last_activity'])  # ADD last_activity here
-            except (TokenError, KeyError):
-                pass
+        if response.status_code == 200:
+            # Update last_activity so the backend has a record of recent use
+            raw_refresh = request.data.get('refresh', '')
+            if raw_refresh:
+                try:
+                    from django.utils import timezone
+                    incoming = RefreshToken(raw_refresh)
+                    user_id = incoming['user_id']
+                    user = AdminUser.objects.get(pk=user_id)
+                    user.last_activity = timezone.now()
+                    user.save(update_fields=['last_activity'])
+                except (TokenError, InvalidToken, KeyError, AdminUser.DoesNotExist):
+                    pass
 
         return response
 
@@ -235,10 +196,7 @@ class ChangeOwnPasswordView(APIView):
 
         user.set_password(new_password)
         user.must_change_password = False
-        # Clear the active session JTI so the current refresh token is
-        # invalidated — the user must log in fresh with their new password.
-        user.active_session_jti = None
-        user.save(update_fields=['password', 'must_change_password', 'active_session_jti'])
+        user.save(update_fields=['password', 'must_change_password'])
         return Response({'message': 'Password changed successfully. Please log in again.'}, status=status.HTTP_200_OK)
 
 

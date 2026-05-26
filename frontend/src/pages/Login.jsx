@@ -24,9 +24,6 @@ export default function Login() {
     if (reason === "inactivity") {
       setInfoMsg("You were automatically logged out after 10 minutes of inactivity.");
       sessionStorage.removeItem("logout_reason");
-    } else if (reason === "session_invalidated") {
-      setInfoMsg("Your session was ended because this account was logged in on another device.");
-      sessionStorage.removeItem("logout_reason");
     }
   }, []);
 
@@ -98,12 +95,6 @@ export default function Login() {
         localStorage.setItem("dp_must_change_pw", "true");
       } else {
         localStorage.removeItem("dp_must_change_pw");
-      }
-
-      // If another session was active, the server kicked it. Tell the user
-      // via a banner on the portal (not an error — login still succeeded).
-      if (data.user.session_displaced) {
-        sessionStorage.setItem("session_displaced_notice", "true");
       }
 
       const route = ROLE_ROUTES[data.user.role] || "/portal";
@@ -524,25 +515,14 @@ export default function Login() {
 
           {/* Error */}
           {error && (
-            error.includes("another device") ? (
-              <div className="device-error-box" role="alert">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
-                  style={{ flexShrink: 0, marginTop: 1 }}>
-                  <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
-                </svg>
-                {error}
-              </div>
-            ) : (
-              <div className="error-box" role="alert">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-                  style={{ flexShrink: 0, marginTop: 1 }}>
-                  <circle cx="8" cy="8" r="7" stroke="#b91c1c" strokeWidth="1.5"/>
-                  <path d="M8 5v3.5M8 11h.01" stroke="#b91c1c" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-                {error}
-              </div>
-            )
+            <div className="error-box" role="alert">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                style={{ flexShrink: 0, marginTop: 1 }}>
+                <circle cx="8" cy="8" r="7" stroke="#b91c1c" strokeWidth="1.5"/>
+                <path d="M8 5v3.5M8 11h.01" stroke="#b91c1c" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              {error}
+            </div>
           )}
 
           {/* Form */}

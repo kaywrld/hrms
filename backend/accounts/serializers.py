@@ -1,5 +1,4 @@
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .models import AdminUser, LoginActivity
 
@@ -18,38 +17,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
-        from django.contrib.auth import get_user_model
-        from django.utils import timezone
-        User = get_user_model()
-
-        # Validate credentials FIRST — wrong password/username raised here
+        # Validate credentials — wrong password/username raised here
         data = super().validate(attrs)
-
-        # Only after credentials pass, check the session lock
-        try:
-            candidate = User.objects.get(username=attrs.get('username', ''))
-            if candidate.active_session_jti:
-                # A session is considered stale/abandoned if last_activity hasn't
-                # been updated in over 24 hours — matching REFRESH_TOKEN_LIFETIME.
-                # The frontend refreshes every 8 min while active, so last_activity
-                # will always be recent for a genuinely live session.
-                stale = (
-                    candidate.last_activity is None or
-                    (timezone.now() - candidate.last_activity).total_seconds() > 86400  # 24 hours
-                )
-                if stale:
-                    # Session abandoned without logout — auto-clear it
-                    candidate.active_session_jti = None
-                    candidate.last_activity = None
-                    candidate.save(update_fields=['active_session_jti', 'last_activity'])
-                else:
-                    raise PermissionDenied({
-                        'detail': 'This account is currently logged in on another device. '
-                                  'Please log out from that device first and try again.',
-                        'code': 'already_logged_in',
-                    })
-        except User.DoesNotExist:
-            pass
 
         dept = self.user.department
         data['user'] = {

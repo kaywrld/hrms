@@ -40,19 +40,6 @@ export const refreshToken = async () => {
     });
 
     if (!res.ok) {
-      // 401 from our ValidatedTokenRefreshView means the session was
-      // invalidated (another device logged in and took over the session).
-      if (res.status === 401) {
-        let reason = "session_invalidated";
-        try {
-          const body = await res.json();
-          if (body?.code === "session_invalidated") reason = "session_invalidated";
-        } catch { /* ignore */ }
-        clearSession();
-        sessionStorage.setItem("logout_reason", reason);
-        window.location.href = "/";
-        return;
-      }
       throw new Error("refresh_failed");
     }
 
@@ -194,18 +181,7 @@ export const startTokenRefreshTimer = () => {
       });
 
       if (!res.ok) {
-        // session_invalidated means another device took over — kick out
-        if (res.status === 401) {
-          let reason = "session_invalidated";
-          try {
-            const body = await res.json();
-            if (body?.code === "session_invalidated") reason = "session_invalidated";
-          } catch { /* ignore */ }
-          clearSession();
-          sessionStorage.setItem("logout_reason", reason);
-          window.location.href = "/";
-        }
-        return;
+        return; // Let apiFetch handle retries on next API call
       }
 
       const data = await res.json();

@@ -196,7 +196,6 @@ function DocUpload({ label, accept, file, onChange, existingUrl, hint }) {
       marginBottom: 16,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        {/* Icon */}
         <div style={{
           width: 44, height: 44, borderRadius: 10, flexShrink: 0,
           background: hasFile ? "#dbeafe" : "#f1f5f9",
@@ -211,8 +210,6 @@ function DocUpload({ label, accept, file, onChange, existingUrl, hint }) {
             <polyline points="10 9 9 9 8 9" />
           </svg>
         </div>
-
-        {/* Info */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, color: "#0f172a", fontFamily: "'DM Sans',sans-serif" }}>
             {label}
@@ -228,8 +225,6 @@ function DocUpload({ label, accept, file, onChange, existingUrl, hint }) {
             </div>
           )}
         </div>
-
-        {/* Buttons */}
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
           <button
             onClick={() => ref.current.click()}
@@ -258,8 +253,6 @@ function DocUpload({ label, accept, file, onChange, existingUrl, hint }) {
           )}
         </div>
       </div>
-
-      {/* Existing URL download link */}
       {existingUrl && !file && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #e2e8f0" }}>
           <a
@@ -281,7 +274,6 @@ function DocUpload({ label, accept, file, onChange, existingUrl, hint }) {
           </a>
         </div>
       )}
-
       <input
         ref={ref}
         type="file"
@@ -356,19 +348,117 @@ function TabBar({ tabs, active, onChange }) {
   );
 }
 
+// ── Country codes (dial codes + digit lengths) ────────────────────────────────
+const COUNTRY_CODES = [
+  { code: "+263", label: "Zimbabwe (+263)",   digits: 9  },
+  { code: "+27",  label: "South Africa (+27)", digits: 9  },
+  { code: "+260", label: "Zambia (+260)",      digits: 9  },
+  { code: "+267", label: "Botswana (+267)",    digits: 8  },
+  { code: "+258", label: "Mozambique (+258)",  digits: 9  },
+  { code: "+265", label: "Malawi (+265)",      digits: 9  },
+  { code: "+255", label: "Tanzania (+255)",    digits: 9  },
+  { code: "+254", label: "Kenya (+254)",       digits: 9  },
+  { code: "+44",  label: "UK (+44)",           digits: 10 },
+  { code: "+1",   label: "USA/Canada (+1)",    digits: 10 },
+  { code: "+61",  label: "Australia (+61)",    digits: 9  },
+  { code: "+91",  label: "India (+91)",        digits: 10 },
+  { code: "+86",  label: "China (+86)",        digits: 11 },
+  { code: "+49",  label: "Germany (+49)",      digits: 10 },
+  { code: "+33",  label: "France (+33)",       digits: 9  },
+  { code: "+234", label: "Nigeria (+234)",     digits: 10 },
+  { code: "+233", label: "Ghana (+233)",       digits: 9  },
+];
+
+// Zimbabwe National ID: DD-NNNNNNLNN  e.g. 63-207522S72
+const ZW_ID_REGEX = /^\d{2}-\d{6,7}[A-Z]\d{2}$/;
+
+function formatZwId(raw) {
+  const clean = raw.replace(/[^0-9A-Z-]/g, "").slice(0, 13);
+  if (/^\d{2}$/.test(clean)) return clean + "-";
+  return clean;
+}
+
+function PhoneField({ dialCode, onDialCodeChange, localNumber, onLocalNumberChange, label = "Phone Number *", required }) {
+  const country = COUNTRY_CODES.find(c => c.code === dialCode) || COUNTRY_CODES[0];
+  const stripped = localNumber.replace(/\s/g, "");
+  const digitsOk = stripped.length === country.digits && /^\d+$/.test(stripped);
+  const showErr = localNumber.length > 0 && !digitsOk;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ display: "flex", gap: 6 }}>
+        <select
+          value={dialCode}
+          onChange={e => onDialCodeChange(e.target.value)}
+          style={{ ...inputStyle, width: 80, flexShrink: 0, padding: "10px 4px", cursor: "pointer", fontSize: 12 }}
+        >
+          {COUNTRY_CODES.map(c => (
+            <option key={c.code} value={c.code}>{c.code} ({c.label.split("(")[0].trim()})</option>
+          ))}
+        </select>
+        <div style={{ flex: 1 }}>
+          <input
+            style={{ ...inputStyle, borderColor: showErr ? "#ef4444" : "#e2e8f0" }}
+            type="tel"
+            value={localNumber}
+            onChange={e => onLocalNumberChange(e.target.value.replace(/[^\d\s]/g, ""))}
+            placeholder={country.digits + " digits"}
+            required={required}
+            onFocus={e => { e.target.style.borderColor = showErr ? "#ef4444" : "#1557b0"; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
+            onBlur={e => { e.target.style.borderColor = showErr ? "#ef4444" : "#e2e8f0"; e.target.style.boxShadow = "none"; }}
+          />
+        </div>
+      </div>
+      {showErr && (
+        <div style={{ fontSize: 11.5, color: "#ef4444", marginTop: 4 }}>
+          Must be exactly {country.digits} digits for {country.label.split("(")[0].trim()}.
+        </div>
+      )}
+      {!showErr && stripped.length > 0 && (
+        <div style={{ fontSize: 11.5, color: "#16a34a", marginTop: 4 }}>Stored as: {dialCode}{stripped}</div>
+      )}
+    </div>
+  );
+}
+
 // ── Add / Edit Employee Modal ─────────────────────────────────────────────
-function EmployeeFormModal({ employee, departments, existingNumbers, onClose, onSave, showToast }) {
+// allEmployees is the full local list used as a fast first-pass duplicate check.
+// A live API call on National ID blur is the authoritative check.
+function EmployeeFormModal({ employee, departments, existingNumbers, allEmployees, onClose, onSave, showToast }) {
   const isEdit = !!employee;
   const [busy, setBusy] = useState(false);
-  const [step, setStep] = useState(0);          // 0-4 wizard steps
+  const [step, setStep] = useState(0);
   const [profilePic, setProfilePic] = useState(null);
   const [cvFile, setCvFile] = useState(null);
   const [certFile, setCertFile] = useState(null);
+
+  // ── National ID live-check state ─────────────────────────────────────────
+  // "idle"     → user hasn't blurred the field yet (or just changed it)
+  // "checking" → API call in flight
+  // "taken"    → ID already belongs to another employee
+  // "ok"       → ID is available (or unchanged on edit)
+  const [idCheckState, setIdCheckState] = useState("idle");
+  const [idCheckMsg,   setIdCheckMsg]   = useState("");
 
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
   const workingDaysThisMonth = getWorkingDaysInMonth(currentYear, currentMonth);
+
+  const parsePhone = (stored) => {
+    if (!stored) return { dialCode: "+263", localNumber: "" };
+    for (const c of [...COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length)) {
+      if (stored.startsWith(c.code)) return { dialCode: c.code, localNumber: stored.slice(c.code.length) };
+    }
+    return { dialCode: "+263", localNumber: stored };
+  };
+  const parsed = parsePhone(employee?.phone_number || "");
+  const [dialCode, setDialCode] = useState(parsed.dialCode);
+  const [localNumber, setLocalNumber] = useState(parsed.localNumber);
+
+  const parsedNok = parsePhone(employee?.nok_phone || "");
+  const [nokDialCode, setNokDialCode] = useState(parsedNok.dialCode);
+  const [nokLocalNumber, setNokLocalNumber] = useState(parsedNok.localNumber);
 
   const [form, setForm] = useState({
     first_name:    employee?.first_name    || "",
@@ -377,7 +467,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
     date_of_birth: employee?.date_of_birth || "",
     national_id:   employee?.national_id   || "",
     gender:        employee?.gender        || "",
-    phone_number:  employee?.phone_number  || "",
+    phone_number:  "",
     email:         employee?.email         || "",
     address:       employee?.address       || "",
     nok_full_name:    employee?.nok_full_name    || "",
@@ -409,14 +499,101 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
 
   const docCount = [cvFile || employee?.cv, certFile || employee?.highest_education_certificate].filter(Boolean).length;
 
+  // ── Live National ID check (fires on field blur) ─────────────────────────
+  const checkNationalId = useCallback(async (value) => {
+    const val = value.trim().toUpperCase();
+
+    // Skip if format is invalid — format error is shown separately
+    if (!ZW_ID_REGEX.test(val)) return;
+
+    // If editing and the ID hasn't changed, mark ok immediately
+    if (isEdit && employee?.national_id?.trim().toUpperCase() === val) {
+      setIdCheckState("ok");
+      setIdCheckMsg("");
+      return;
+    }
+
+    setIdCheckState("checking");
+    try {
+      const res = await apiFetch(
+        `${API}/employees/?national_id=${encodeURIComponent(val)}&page_size=1`
+      );
+      const data = res.ok ? await res.json() : null;
+      const results = Array.isArray(data) ? data : (data?.results || []);
+      const others  = isEdit ? results.filter(e => e.id !== employee?.id) : results;
+
+      if (others.length > 0) {
+        const found = others[0];
+        const name  = `${found.first_name} ${found.last_name}`.trim();
+        setIdCheckState("taken");
+        setIdCheckMsg(`Already registered: ${name} (${found.employee_number})`);
+      } else {
+        setIdCheckState("ok");
+        setIdCheckMsg("");
+      }
+    } catch {
+      // Network error — silently fall back; backend will catch on submit
+      setIdCheckState("idle");
+      setIdCheckMsg("");
+    }
+  }, [isEdit, employee]);
+
   // ── Per-step validation ──────────────────────────────────────────────────
   const validateStep = (s) => {
     if (s === 0) {
-      const req = ["first_name", "last_name", "date_of_birth", "national_id", "gender", "phone_number", "address"];
+      const req = ["first_name", "last_name", "date_of_birth", "national_id", "gender", "address"];
       for (const k of req) {
         if (!form[k]) { showToast(`${k.replace(/_/g, " ")} is required.`, "err"); return false; }
       }
+
+      // Format check
+      if (!ZW_ID_REGEX.test(form.national_id)) {
+        showToast("National ID must be in format DD-NNNNNNLNN (e.g. 63-207522S72).", "err");
+        return false;
+      }
+
+      // Block if live API check found a duplicate
+      if (idCheckState === "taken") {
+        showToast(`National ID already registered. ${idCheckMsg}`, "err");
+        return false;
+      }
+
+      // Block if the check is still in flight (user clicked Next too fast)
+      if (idCheckState === "checking") {
+        showToast("Please wait — verifying National ID…", "err");
+        return false;
+      }
+
+      // Validate phone number
+      const country = COUNTRY_CODES.find(c => c.code === dialCode) || COUNTRY_CODES[0];
+      const stripped = localNumber.replace(/\s/g, "");
+      if (!stripped || stripped.length !== country.digits || !/^\d+$/.test(stripped)) {
+        showToast(`Phone number must be exactly ${country.digits} digits for ${country.label.split("(")[0].trim()}.`, "err");
+        return false;
+      }
+
+      // Fast local duplicate check as an additional safety net
+      if (!isEdit && allEmployees && allEmployees.length > 0) {
+        const fn  = form.first_name.trim().toLowerCase();
+        const ln  = form.last_name.trim().toLowerCase();
+        const dob = form.date_of_birth;
+        const nid = form.national_id.trim().toUpperCase();
+        const duplicate = allEmployees.find(e =>
+          e.first_name?.trim().toLowerCase() === fn &&
+          e.last_name?.trim().toLowerCase()  === ln &&
+          e.date_of_birth === dob &&
+          e.national_id?.trim().toUpperCase() === nid
+        );
+        if (duplicate) {
+          showToast(
+            `Employee already exists: ${duplicate.first_name} ${duplicate.last_name} (${duplicate.employee_number}).`,
+            "err"
+          );
+          return false;
+        }
+      }
     }
+
     if (s === 1) {
       const req = ["employee_number", "job_title", "employment_type", "status"];
       for (const k of req) {
@@ -429,11 +606,13 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
         if (!form.date_joined) { showToast("Started work at date is required.", "err"); return false; }
       }
     }
+
     if (s === 2) {
       if (!form.monthly_salary || isNaN(parseFloat(form.monthly_salary)) || parseFloat(form.monthly_salary) <= 0) {
         showToast("Monthly salary is required.", "err"); return false;
       }
     }
+
     return true;
   };
 
@@ -444,21 +623,21 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
 
   // ── Final submit ─────────────────────────────────────────────────────────
   const submit = async () => {
-    // Validate all steps before submitting
     for (let s = 0; s <= 2; s++) {
       if (!validateStep(s)) { setStep(s); return; }
     }
     setBusy(true);
     try {
+      const fullPhone = dialCode + localNumber.replace(/\s/g, "");
       const fd = new FormData();
       const skipKeys = new Set(["monthly_salary", "bank_name", "bank_account"]);
       Object.entries(form).forEach(([k, v]) => {
         if (skipKeys.has(k)) return;
+        if (k === "phone_number") { fd.append("phone_number", fullPhone); return; }
+        if (k === "nok_phone") { const np = nokDialCode + nokLocalNumber.replace(/\s/g, ""); if (np.length > nokDialCode.length) fd.append("nok_phone", np); return; }
         if (v !== null && v !== undefined && v !== "") fd.append(k, v);
       });
 
-      // date_joined is required by the backend — always send it
-      // For contract employees use contract_start as the join date if date_joined is empty
       if (!form.date_joined) {
         const fallback = form.contract_start || new Date().toISOString().slice(0, 10);
         fd.set("date_joined", fallback);
@@ -469,7 +648,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
       if (certFile)   fd.append("highest_education_certificate", certFile);
 
       const method = isEdit ? "PATCH" : "POST";
-      const url = isEdit ? `${API}/employees/${employee.id}/` : `${API}/employees/`;
+      const url    = isEdit ? `${API}/employees/${employee.id}/` : `${API}/employees/`;
 
       let token = getToken();
       let res = await fetch(url, {
@@ -489,7 +668,6 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
       }
       const saved = await res.json();
 
-      // Save payroll (bank details + salary)
       try {
         const prBody = JSON.stringify({
           employee: saved.id,
@@ -531,7 +709,6 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
       <div style={{ display: "flex", alignItems: "center", marginBottom: 24, gap: 0 }}>
         {steps.map((s, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", flex: i < steps.length - 1 ? 1 : "none" }}>
-            {/* Circle */}
             <div
               onClick={() => i < step && setStep(i)}
               style={{
@@ -549,9 +726,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
             >
               {i < step ? "✓" : i + 1}
             </div>
-            {/* Label below on desktop */}
             <div style={{ display: "none" }} />
-            {/* Connector line */}
             {i < steps.length - 1 && (
               <div style={{
                 flex: 1, height: 2, margin: "0 4px",
@@ -562,6 +737,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
           </div>
         ))}
       </div>
+
       {/* Step label */}
       <div style={{
         textAlign: "center", marginBottom: 18, marginTop: -14,
@@ -585,8 +761,79 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
                 options={[{ value: "M", label: "Male" }, { value: "F", label: "Female" }, { value: "O", label: "Other" }]} />
             </FField>
             <FField label="Date of Birth *"><FInput type="date" value={form.date_of_birth} onChange={set("date_of_birth")} /></FField>
-            <FField label="National ID *"><FInput value={form.national_id} onChange={set("national_id")} placeholder="e.g. 12-345678 A12" /></FField>
-            <FField label="Phone Number *"><FInput value={form.phone_number} onChange={set("phone_number")} placeholder="e.g. +263 77 123 4567" /></FField>
+
+            {/* ── National ID with live duplicate check ── */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>National ID *</label>
+              <input
+                style={{
+                  ...inputStyle,
+                  borderColor:
+                    idCheckState === "taken"    ? "#ef4444"
+                    : idCheckState === "ok"     ? "#16a34a"
+                    : form.national_id.length > 0 && !ZW_ID_REGEX.test(form.national_id) ? "#ef4444"
+                    : "#e2e8f0",
+                  textTransform: "uppercase",
+                }}
+                value={form.national_id}
+                onChange={e => {
+                  set("national_id")(formatZwId(e.target.value.toUpperCase()));
+                  // Reset check state whenever user edits the field
+                  setIdCheckState("idle");
+                  setIdCheckMsg("");
+                }}
+                onBlur={() => checkNationalId(form.national_id)}
+                placeholder="e.g. 63-207522S72 or 63-2075228S72"
+                maxLength={13}
+                onFocus={e => {
+                  e.target.style.borderColor =
+                    idCheckState === "taken" ? "#ef4444"
+                    : idCheckState === "ok"  ? "#16a34a"
+                    : "#1557b0";
+                  e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)";
+                }}
+              />
+
+              {/* Format error */}
+              {form.national_id.length > 0 && !ZW_ID_REGEX.test(form.national_id) && (
+                <div style={{ fontSize: 11.5, color: "#ef4444", marginTop: 4 }}>
+                  Format: DD-NNNNNN(N)LNN — e.g. 63-207522S72
+                </div>
+              )}
+
+              {/* Checking spinner */}
+              {idCheckState === "checking" && (
+                <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 4, display: "flex", alignItems: "center", gap: 5 }}>
+                  <div style={{
+                    width: 10, height: 10, border: "2px solid #e8edf8",
+                    borderTopColor: "#1557b0", borderRadius: "50%",
+                    animation: "spin 0.7s linear infinite", flexShrink: 0,
+                  }} />
+                  Checking ID…
+                </div>
+              )}
+
+              {/* Taken — block the user */}
+              {idCheckState === "taken" && (
+                <div style={{
+                  marginTop: 6, padding: "8px 12px",
+                  background: "#fef2f2", border: "1px solid #fecaca",
+                  borderRadius: 8, fontSize: 12, color: "#991b1b",
+                  fontFamily: "'DM Sans',sans-serif", lineHeight: 1.5,
+                }}>
+                  ✗ &nbsp;{idCheckMsg}
+                </div>
+              )}
+
+              {/* OK — ID is free */}
+              {idCheckState === "ok" && ZW_ID_REGEX.test(form.national_id) && (
+                <div style={{ fontSize: 11.5, color: "#16a34a", marginTop: 4 }}>
+                  ✓ National ID is available
+                </div>
+              )}
+            </div>
+
+            <PhoneField dialCode={dialCode} onDialCodeChange={setDialCode} localNumber={localNumber} onLocalNumberChange={setLocalNumber} required />
             <FField label="Email Address"><FInput type="email" value={form.email} onChange={set("email")} placeholder="e.g. john@example.com" /></FField>
           </div>
           <FField label="Address *">
@@ -680,7 +927,6 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
             </div>
           )}
 
-          {/* Banking Details */}
           <div style={{ marginTop: 8, padding: "16px 18px", background: "#fafbff", border: "1.5px solid #e2e8f0", borderRadius: 12, marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 14, fontFamily: "'DM Sans',sans-serif" }}>
               🏦 Banking Details (Optional)
@@ -712,7 +958,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
                 { value: "other", label: "Other" },
               ]} />
           </FField>
-          <FField label="NOK Phone"><FInput value={form.nok_phone} onChange={set("nok_phone")} placeholder="+263 …" /></FField>
+          <PhoneField label="NOK Phone" dialCode={nokDialCode} onDialCodeChange={setNokDialCode} localNumber={nokLocalNumber} onLocalNumberChange={setNokLocalNumber} />
           <FField label="NOK Email"><FInput type="email" value={form.nok_email} onChange={set("nok_email")} /></FField>
           <div style={{ gridColumn: "1/-1" }}>
             <FField label="NOK Address">
@@ -761,7 +1007,6 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
 
       {/* ── Navigation buttons ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 26, paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
-        {/* Left: Cancel or Back */}
         {step === 0
           ? <button onClick={onClose} style={{ padding: "10px 22px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#f1f5f9", color: "#0f172a", fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Cancel</button>
           : <button onClick={goBack} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 20px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#f8faff", color: "#475569", fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
@@ -770,10 +1015,23 @@ function EmployeeFormModal({ employee, departments, existingNumbers, onClose, on
             </button>
         }
 
-        {/* Right: Next or Submit */}
         {step < steps.length - 1
-          ? <button onClick={goNext} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 22px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#0a2a5e,#1557b0)", color: "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 8px rgba(21,87,176,0.25)" }}>
-              Next
+          ? <button
+              onClick={goNext}
+              disabled={idCheckState === "taken" || idCheckState === "checking"}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "10px 22px", borderRadius: 10, border: "none",
+                background: (step === 0 && (idCheckState === "taken" || idCheckState === "checking"))
+                  ? "#94a3b8"
+                  : "linear-gradient(135deg,#0a2a5e,#1557b0)",
+                color: "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 600,
+                cursor: (step === 0 && (idCheckState === "taken" || idCheckState === "checking")) ? "not-allowed" : "pointer",
+                boxShadow: "0 2px 8px rgba(21,87,176,0.25)",
+                opacity: (step === 0 && idCheckState === "taken") ? 0.7 : 1,
+              }}
+            >
+              {step === 0 && idCheckState === "checking" ? "Checking ID…" : "Next"}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6" /></svg>
             </button>
           : <button onClick={submit} disabled={busy} style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#0a2a5e,#1557b0)", color: "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 600, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
@@ -910,20 +1168,16 @@ function downloadPDF(rows, monthLabel) {
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
-// Uses HRPortalContext for employees + departments (avoids duplicate DB calls).
-// Fetches payroll and attendance independently (these are not in the context).
 export default function HREmployeesPage({ showToast, isHRM }) {
-  // ── Data from HRPortal context (shared cache — no extra DB calls) ──────────
   const {
     employees: ctxEmployees,
     departments: ctxDepartments,
     loading: ctxLoading,
   } = useHRPortal();
 
-  // ── Local state: only what context doesn't provide ────────────────────────
-  const [employees,     setEmployees]     = useState(null);   // local copy (editable)
-  const [payrolls,      setPayrolls]      = useState([]);
-  const [attendanceAll, setAttendanceAll] = useState([]);
+  const [employees,      setEmployees]      = useState(null);
+  const [payrolls,       setPayrolls]       = useState([]);
+  const [attendanceAll,  setAttendanceAll]  = useState([]);
   const [payrollLoading, setPayrollLoading] = useState(true);
 
   const [search,       setSearch]       = useState("");
@@ -935,27 +1189,22 @@ export default function HREmployeesPage({ showToast, isHRM }) {
   const dlRef = useRef();
 
   const now = new Date();
-  const currentYear = now.getFullYear();
+  const currentYear  = now.getFullYear();
   const currentMonth = now.getMonth();
   const workingDaysThisMonth = getWorkingDaysInMonth(currentYear, currentMonth);
   const monthLabel = now.toLocaleString("en-GB", { month: "long", year: "numeric" });
 
   const monthStart = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-01`;
-  const lastDay = new Date(currentYear, currentMonth + 1, 0).getDate();
-  const monthEnd = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  const lastDay    = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const monthEnd   = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-  // ── Sync employees from context when it loads ─────────────────────────────
   useEffect(() => {
-    if (ctxEmployees) {
-      setEmployees(ctxEmployees);
-    }
+    if (ctxEmployees) setEmployees(ctxEmployees);
   }, [ctxEmployees]);
 
-  // ── Fetch only payroll + attendance (not in context) ──────────────────────
   const fetchPayrollAndAttendance = useCallback(async () => {
     setPayrollLoading(true);
     try {
-      // apiFetch handles token refresh automatically
       const [prRes, attRes] = await Promise.all([
         apiFetch(`${API}/payroll/`),
         apiFetch(`${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&page_size=5000`),
@@ -964,7 +1213,7 @@ export default function HREmployeesPage({ showToast, isHRM }) {
         prRes.ok  ? prRes.json()  : [],
         attRes.ok ? attRes.json() : [],
       ]);
-      setPayrolls(Array.isArray(prData)  ? prData  : prData.results  || []);
+      setPayrolls(Array.isArray(prData)   ? prData   : prData.results   || []);
       setAttendanceAll(Array.isArray(attData) ? attData : attData.results || []);
     } catch (e) {
       console.error("fetchPayrollAndAttendance error:", e);
@@ -975,14 +1224,12 @@ export default function HREmployeesPage({ showToast, isHRM }) {
 
   useEffect(() => { fetchPayrollAndAttendance(); }, [fetchPayrollAndAttendance]);
 
-  // Close download dropdown on outside click
   useEffect(() => {
     const fn = e => { if (dlRef.current && !dlRef.current.contains(e.target)) setDownloadOpen(false); };
     document.addEventListener("mousedown", fn);
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  // ── Derived maps ──────────────────────────────────────────────────────────
   const departments = ctxDepartments || [];
 
   const payrollMap = useMemo(() => {
@@ -1005,9 +1252,9 @@ export default function HREmployeesPage({ showToast, isHRM }) {
   const enriched = useMemo(() => {
     if (!employees) return [];
     return employees.map(emp => {
-      const monthlySalary = payrollMap[emp.id] || 0;
-      const dailyRate = workingDaysThisMonth > 0 ? monthlySalary / workingDaysThisMonth : 0;
-      const daysAttended = attendanceMap[emp.id] || 0;
+      const monthlySalary  = payrollMap[emp.id] || 0;
+      const dailyRate      = workingDaysThisMonth > 0 ? monthlySalary / workingDaysThisMonth : 0;
+      const daysAttended   = attendanceMap[emp.id] || 0;
       const amountToBePaid = dailyRate * daysAttended;
       const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
       return { ...emp, fullName, monthlySalary, dailyRate, daysAttended, amountToBePaid };
@@ -1023,17 +1270,15 @@ export default function HREmployeesPage({ showToast, isHRM }) {
         (e.email || "").toLowerCase().includes(q) ||
         (e.phone_number || "").toLowerCase().includes(q) ||
         (e.job_title || "").toLowerCase().includes(q);
-      const matchDept = deptFilter === "all" ||
-        String(e.department) === deptFilter ||
-        (e.department_name || "").toLowerCase() === deptFilter.toLowerCase();
-      const matchType = typeFilter === "all" || e.employment_type === typeFilter;
+      const matchDept   = deptFilter === "all" || String(e.department) === deptFilter || (e.department_name || "").toLowerCase() === deptFilter.toLowerCase();
+      const matchType   = typeFilter === "all" || e.employment_type === typeFilter;
       const matchStatus = statusFilter === "all" || e.status === statusFilter;
       return matchSearch && matchDept && matchType && matchStatus;
     });
   }, [enriched, search, deptFilter, typeFilter, statusFilter]);
 
-  const totalWorkers = enriched.length;
-  const totalPayable = filtered.reduce((s, e) => s + e.amountToBePaid, 0);
+  const totalWorkers  = enriched.length;
+  const totalPayable  = filtered.reduce((s, e) => s + e.amountToBePaid, 0);
   const avgAttendance = totalWorkers > 0
     ? Math.round(enriched.reduce((s, e) => s + e.daysAttended, 0) / totalWorkers * 10) / 10
     : 0;
@@ -1043,31 +1288,31 @@ export default function HREmployeesPage({ showToast, isHRM }) {
   const today = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   const tableRows = filtered.map(e => ({
-    fullName: e.fullName,
-    jobTitle: e.job_title || e.position || "—",
-    dept: e.department_name || departments.find(d => d.id === e.department)?.name || "—",
-    daysAttended: e.daysAttended,
-    workingDays: workingDaysThisMonth,
+    fullName:      e.fullName,
+    jobTitle:      e.job_title || e.position || "—",
+    dept:          e.department_name || departments.find(d => d.id === e.department)?.name || "—",
+    daysAttended:  e.daysAttended,
+    workingDays:   workingDaysThisMonth,
     monthlySalary: e.monthlySalary,
-    dailyRate: e.dailyRate,
+    dailyRate:     e.dailyRate,
     amountToBePaid: e.amountToBePaid,
   }));
 
   const statusStyles = {
-    employed:   { bg: "#dcfce7", color: "#166534" },
-    retired:    { bg: "#dbeafe", color: "#1e40af" },
-    dismissed:  { bg: "#fee2e2", color: "#991b1b" },
-    resigned:   { bg: "#fef9c3", color: "#854d0e" },
-    suspended:  { bg: "#fce7f3", color: "#9d174d" },
+    employed:  { bg: "#dcfce7", color: "#166534" },
+    retired:   { bg: "#dbeafe", color: "#1e40af" },
+    dismissed: { bg: "#fee2e2", color: "#991b1b" },
+    resigned:  { bg: "#fef9c3", color: "#854d0e" },
+    suspended: { bg: "#fce7f3", color: "#9d174d" },
   };
 
-  // Combined loading: context employees OR payroll
   const loading = ctxLoading?.employees || payrollLoading || employees === null;
 
   return (
     <>
       <style>{`
         @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 22, animation: "fadeInUp 0.3s ease" }}>
@@ -1113,7 +1358,7 @@ export default function HREmployeesPage({ showToast, isHRM }) {
                 }}>
                   {[
                     { label: "Download as Excel (CSV)", icon: "📊", action: () => { downloadCSV(tableRows, `employees-${monthLabel.replace(/ /g, "-")}.csv`); setDownloadOpen(false); } },
-                    { label: "Download as PDF", icon: "📄", action: () => { downloadPDF(tableRows, monthLabel); setDownloadOpen(false); } },
+                    { label: "Download as PDF",         icon: "📄", action: () => { downloadPDF(tableRows, monthLabel); setDownloadOpen(false); } },
                   ].map(item => (
                     <button key={item.label} onClick={item.action} style={{
                       display: "flex", alignItems: "center", gap: 10,
@@ -1192,7 +1437,6 @@ export default function HREmployeesPage({ showToast, isHRM }) {
         }}>
           {/* Filters */}
           <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            {/* Search */}
             <div style={{ position: "relative", flex: "1 1 220px" }}>
               <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
                 width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round">
@@ -1212,13 +1456,11 @@ export default function HREmployeesPage({ showToast, isHRM }) {
               />
             </div>
 
-            {/* Department filter */}
             <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 170px" }}>
               <option value="all">All Departments</option>
               {departments.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
             </select>
 
-            {/* Type filter */}
             <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 150px" }}>
               <option value="all">All Types</option>
               <option value="full_time">Full-Time</option>
@@ -1226,7 +1468,6 @@ export default function HREmployeesPage({ showToast, isHRM }) {
               <option value="contract">Contract</option>
             </select>
 
-            {/* Status filter */}
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 150px" }}>
               <option value="all">All Statuses</option>
               <option value="employed">Employed</option>
@@ -1236,7 +1477,6 @@ export default function HREmployeesPage({ showToast, isHRM }) {
               <option value="suspended">Suspended</option>
             </select>
 
-            {/* Result count */}
             <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap", padding: "0 4px" }}>
               {filtered.length} of {employees?.length ?? 0} employees
             </div>
@@ -1280,10 +1520,9 @@ export default function HREmployeesPage({ showToast, isHRM }) {
                     No employees match your filters.
                   </td></tr>
                 ) : filtered.map((emp, i) => {
-                  const ss = statusStyles[emp.status] || { bg: "#f1f5f9", color: "#475569" };
-                  const typeLabel = { full_time: "Full-Time", part_time: "Part-Time", contract: "Contract" };
-                  const deptName = emp.department_name || departments.find(d => d.id === emp.department)?.name || "—";
-                  const payColor = emp.amountToBePaid > 0 ? "#166534" : "#94a3b8";
+                  const ss        = statusStyles[emp.status] || { bg: "#f1f5f9", color: "#475569" };
+                  const deptName  = emp.department_name || departments.find(d => d.id === emp.department)?.name || "—";
+                  const payColor  = emp.amountToBePaid > 0 ? "#166534" : "#94a3b8";
 
                   return (
                     <tr key={emp.id}
@@ -1330,23 +1569,18 @@ export default function HREmployeesPage({ showToast, isHRM }) {
               {!loading && filtered.length > 0 && (
                 <tfoot>
                   <tr style={{ background: "linear-gradient(135deg,#f8faff,#eff6ff)", borderTop: "2px solid #e2e8f0" }}>
-                    {/* cols 1–2: Employee + Job Title → label */}
                     <td colSpan={2} style={{ padding: "12px 14px", fontWeight: 700, fontSize: 12, color: "#0a2a5e", fontFamily: "'DM Sans',sans-serif" }}>
                       Totals ({filtered.length} employees shown)
                     </td>
-                    {/* col 3: Days Attended */}
                     <td style={{ padding: "12px 14px" }}>
                       <span style={{ fontSize: 12, fontWeight: 600, color: "#1557b0", fontFamily: "'DM Sans',sans-serif" }}>
                         Avg: {avgAttendance} days
                       </span>
                     </td>
-                    {/* col 4: Monthly Salary */}
                     <td style={{ padding: "12px 14px", textAlign: "right", fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: "#0a2a5e" }}>
                       {fmt$(filtered.reduce((s, e) => s + e.monthlySalary, 0))}
                     </td>
-                    {/* col 5: Daily Rate — intentionally blank */}
                     <td style={{ padding: "12px 14px" }} />
-                    {/* col 6: Amount To Be Paid */}
                     <td style={{ padding: "12px 14px", textAlign: "right" }}>
                       <span style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, color: "#059669" }}>
                         {fmt$(totalPayable)}
@@ -1365,6 +1599,7 @@ export default function HREmployeesPage({ showToast, isHRM }) {
         <EmployeeFormModal
           departments={departments}
           existingNumbers={existingNumbers}
+          allEmployees={employees || []}
           onClose={() => setModal(null)}
           showToast={showToast}
           onSave={emp => {
