@@ -121,12 +121,25 @@ export const performLogout = async (reason = "manual") => {
 
 const INACTIVITY_MS = 10 * 60 * 1000; // 10 minutes
 
+// ── Modal-open suppression ────────────────────────────────────────────────────
+// When a modal is open, inactivity logout is suppressed so users can fill in
+// forms without being kicked out mid-entry.
+let _modalOpenCount = 0;
+export const notifyModalOpen  = () => { _modalOpenCount++; };
+export const notifyModalClose = () => { _modalOpenCount = Math.max(0, _modalOpenCount - 1); };
+export const isModalOpen      = () => _modalOpenCount > 0;
+
 export const startInactivityTimer = () => {
   let timer = null;
 
   const reset = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
+      // Don't log out if a modal/form is currently open — user is actively entering data
+      if (isModalOpen()) {
+        reset(); // reschedule
+        return;
+      }
       performLogout("inactivity");
     }, INACTIVITY_MS);
   };

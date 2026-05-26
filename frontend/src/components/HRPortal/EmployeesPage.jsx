@@ -10,7 +10,7 @@
 // ✅ Only fetches payroll + attendance independently (not in context)
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { apiFetch, getToken, refreshToken } from "../../utils/auth";
+import { apiFetch, getToken, refreshToken, notifyModalOpen, notifyModalClose } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
 
 const API = "http://127.0.0.1:8000/api";
@@ -289,14 +289,18 @@ function DocUpload({ label, accept, file, onChange, existingUrl, hint }) {
 function Modal({ title, onClose, children, maxWidth = 620 }) {
   useEffect(() => {
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = ""; };
+    notifyModalOpen();
+    return () => {
+      document.body.style.overflow = "";
+      notifyModalClose();
+    };
   }, []);
   return (
     <div style={{
       position: "fixed", inset: 0, background: "rgba(10,26,80,0.52)",
       zIndex: 700, display: "flex", alignItems: "center", justifyContent: "center",
       padding: 20,
-    }} onClick={e => e.target === e.currentTarget && onClose()}>
+    }}>
       <div style={{
         background: "#fff", borderRadius: 18, width: "100%", maxWidth,
         boxShadow: "0 28px 72px rgba(0,0,0,0.18)",
@@ -546,6 +550,17 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
         if (!form[k]) { showToast(`${k.replace(/_/g, " ")} is required.`, "err"); return false; }
       }
 
+      // Minimum age check — employee must be at least 18 years old
+      if (form.date_of_birth) {
+        const dob = new Date(form.date_of_birth);
+        const today = new Date();
+        const eighteenthBirthday = new Date(dob.getFullYear() + 18, dob.getMonth(), dob.getDate());
+        if (today < eighteenthBirthday) {
+          showToast("Invalid date of birth — employee must be at least 18 years old.", "err");
+          return false;
+        }
+      }
+
       // Format check
       if (!ZW_ID_REGEX.test(form.national_id)) {
         showToast("National ID must be in format DD-NNNNNNLNN (e.g. 63-207522S72).", "err");
@@ -760,7 +775,46 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
               <FSelect value={form.gender} onChange={set("gender")} placeholder="Select gender"
                 options={[{ value: "M", label: "Male" }, { value: "F", label: "Female" }, { value: "O", label: "Other" }]} />
             </FField>
-            <FField label="Date of Birth *"><FInput type="date" value={form.date_of_birth} onChange={set("date_of_birth")} /></FField>
+            <FField label="Date of Birth *">
+              {(() => {
+                const maxDob = (() => {
+                  const d = new Date();
+                  d.setFullYear(d.getFullYear() - 18);
+                  return d.toISOString().slice(0, 10);
+                })();
+                const dobAge = form.date_of_birth ? (() => {
+                  const dob = new Date(form.date_of_birth);
+                  const today = new Date();
+                  const age = today.getFullYear() - dob.getFullYear() -
+                    (today < new Date(today.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
+                  return age;
+                })() : null;
+                const dobInvalid = dobAge !== null && dobAge < 18;
+                return (
+                  <>
+                    <input
+                      style={{ ...inputStyle, borderColor: dobInvalid ? "#ef4444" : "#e2e8f0" }}
+                      type="date"
+                      value={form.date_of_birth}
+                      max={maxDob}
+                      onChange={e => set("date_of_birth")(e.target.value)}
+                      onFocus={e => { e.target.style.borderColor = dobInvalid ? "#ef4444" : "#1557b0"; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
+                      onBlur={e => { e.target.style.borderColor = dobInvalid ? "#ef4444" : "#e2e8f0"; e.target.style.boxShadow = "none"; }}
+                    />
+                    {dobInvalid && (
+                      <div style={{ fontSize: 11.5, color: "#ef4444", marginTop: 4 }}>
+                        Employee must be at least 18 years old.
+                      </div>
+                    )}
+                    {dobAge !== null && !dobInvalid && (
+                      <div style={{ fontSize: 11.5, color: "#16a34a", marginTop: 4 }}>
+                        Age: {dobAge} years
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </FField>
 
             {/* ── National ID with live duplicate check ── */}
             <div style={{ marginBottom: 14 }}>
