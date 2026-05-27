@@ -23,7 +23,7 @@ import HRAttendancePage from "../components/HRPortal/AttendancePage";
 import HRPayrollPage    from "../components/HRPortal/PayrollPage";
 import HRPayslipsPage   from "../components/HRPortal/PayslipsPage";
 
-const API = "http://127.0.0.1:8000/api";
+const API = "${import.meta.env.VITE_API_BASE_URL}/api";
 
 // ─── Nav items (HR set minus Admins, plus Mark Register) ─────────────────────
 const NAV_ITEMS = [
@@ -282,7 +282,7 @@ function TopbarMenu({ user, initials, onProfile, onPassword }) {
     return () => document.removeEventListener("mousedown", fn);
   }, []);
   const photoUrl = user?.profile_picture
-    ? (user.profile_picture.startsWith("http") ? user.profile_picture : `http://127.0.0.1:8000${user.profile_picture}`)
+    ? (user.profile_picture.startsWith("http") ? user.profile_picture : `${import.meta.env.VITE_API_BASE_URL}${user.profile_picture}`)
     : null;
 
   return (
@@ -369,7 +369,7 @@ function TopbarMenu({ user, initials, onProfile, onPassword }) {
 // ─── Profile page ─────────────────────────────────────────────────────────────
 function ProfilePage({ user, initials, onPassword }) {
   const photoUrl = user?.profile_picture
-    ? (user.profile_picture.startsWith("http") ? user.profile_picture : `http://127.0.0.1:8000${user.profile_picture}`)
+    ? (user.profile_picture.startsWith("http") ? user.profile_picture : `${import.meta.env.VITE_API_BASE_URL}${user.profile_picture}`)
     : null;
   return (
     <div style={{ maxWidth: 560, margin: "0 auto" }}>
@@ -852,7 +852,7 @@ function MarkRegisterPage({ showToast }) {
                   const rec = records[e.id];
                   const isSaving = saving[e.id];
                   const imgSrc = e.profile_picture
-                    ? (e.profile_picture.startsWith("http") ? e.profile_picture : `http://127.0.0.1:8000${e.profile_picture}`)
+                    ? (e.profile_picture.startsWith("http") ? e.profile_picture : `${import.meta.env.VITE_API_BASE_URL}${e.profile_picture}`)
                     : null;
                   return (
                     <tr key={e.id}>

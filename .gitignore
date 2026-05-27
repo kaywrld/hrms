@@ -1,5 +1,41 @@
-backend/.env
-venv/
-backend/venv/
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+backend/venv/
+
+# ── Environment / secrets — NEVER commit these ───────────────────────────────
+.env
+backend/.env
+frontend/.env
+frontend/.env.production
+# .env.example files ARE committed (they contain no real secrets)
+
+# ── Django media uploads — PII, never in version control ─────────────────────
+backend/media/
+media/
+
+# ── Django static collected files ────────────────────────────────────────────
+backend/staticfiles/
+
+# ── Node / frontend ───────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

@@ -50,6 +50,8 @@ INSTALLED_APPS = [
     'accounts',
     'attendance',
     'payroll',
+
+    'drf_spectacular',
 ]
 
 MIDDLEWARE = [
@@ -82,16 +84,22 @@ DATABASES = {
 }
 
 # Redis Cache
+# REDIS_URL defaults to a local Redis instance (db 1).
+# Override in .env for staging/production: REDIS_URL=redis://:password@host:6379/1
+# CACHES = {
+#     'default': {
+#         'BACKEND': 'django_redis.cache.RedisCache',
+#         'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/1'),
+#         'OPTIONS': {
+#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+#         },
+#         'TIMEOUT': 300,  # 5 min default TTL; individual cache calls may override
+#     }
+# }
+
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-    },
-    'redis': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        }
     }
 }
 
@@ -140,9 +148,11 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '5/minute',
-        'user': '300/minute',
+        'anon':  '5/minute',
+        'user':  '300/minute',
+        'login': '5/minute',   # LoginRateThrottle scope — tighter, login-specific
     },
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 SIMPLE_JWT = {
@@ -202,7 +212,14 @@ SECURE_BROWSER_XSS_FILTER = True
 X_FRAME_OPTIONS = 'DENY'
 
 # These only activate when DEBUG=False (production), so they won't affect localhost
-SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=False, cast=bool)
-SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=False, cast=bool)
-CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=False, cast=bool)
-SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=0, cast=int)
+SECURE_SSL_REDIRECT     = config('SECURE_SSL_REDIRECT',     default=False, cast=bool)
+SESSION_COOKIE_SECURE   = config('SESSION_COOKIE_SECURE',   default=False, cast=bool)
+CSRF_COOKIE_SECURE      = config('CSRF_COOKIE_SECURE',      default=False, cast=bool)
+SECURE_HSTS_SECONDS     = config('SECURE_HSTS_SECONDS',     default=0, cast=int)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = config('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=False, cast=bool)
+SECURE_HSTS_PRELOAD     = config('SECURE_HSTS_PRELOAD',     default=False, cast=bool)
+
+# ── File upload limits ────────────────────────────────────────────────────────
+# Max in-memory size before Django spools to disk (default 2.5 MB → 10 MB)
+DATA_UPLOAD_MAX_MEMORY_SIZE  = 10 * 1024 * 1024   # 10 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE  = 10 * 1024 * 1024   # 10 MB

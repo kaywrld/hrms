@@ -993,7 +993,7 @@ function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit }) {
   const [payroll, setPayroll] = useState(emp.payroll || null);
   useEffect(() => {
     if (payroll) return; // already have it
-    apiFetch(`http://127.0.0.1:8000/api/payroll/employee/${emp.id}/`)
+    apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/payroll/employee/${emp.id}/`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setPayroll(d); })
       .catch(() => {});
@@ -1338,7 +1338,7 @@ function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit }) {
       {/* Documents — CV + Education Certificate + any attachments */}
       {(() => {
         // Build document list from model fields: cv, highest_education_certificate, plus any attached docs array
-        const apiBase = "http://127.0.0.1:8000";
+        const apiBase = "${import.meta.env.VITE_API_BASE_URL}";
         const docList = [];
         if (emp.cv) {
           const url = emp.cv.startsWith("http") ? emp.cv : `${apiBase}${emp.cv.startsWith("/") ? "" : "/media/"}${emp.cv}`;
@@ -1493,7 +1493,7 @@ function _EditSelect({ value, onChange, options, placeholder }) {
 }
 
 function EditEmployeeModal({ employee, departments, onClose, showToast, onSave }) {
-  const API = "http://127.0.0.1:8000/api";
+  const API = "${import.meta.env.VITE_API_BASE_URL}/api";
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("banking"); // "banking" | "personal" | "employment"
 
@@ -2410,7 +2410,7 @@ function EditProfileModal({ user, onClose, showToast }) {
     username:  user?.username || "",
   });
   const [busy, setBusy] = useState(false);
-  const API = "http://127.0.0.1:8000/api";
+  const API = "${import.meta.env.VITE_API_BASE_URL}/api";
 
   const save = async () => {
     if (!form.full_name || !form.email || !form.username) { showToast("Name, username and email are required.", "err"); return; }
@@ -2484,7 +2484,7 @@ function ChangePasswordModal({ onClose, showToast, onSuccess }) {
   const [form, setForm] = useState({ current_password: "", new_password: "", confirm_password: "" });
   const [show, setShow] = useState({ c: false, n: false, cf: false });
   const [busy, setBusy] = useState(false);
-  const API = "http://127.0.0.1:8000/api";
+  const API = "${import.meta.env.VITE_API_BASE_URL}/api";
 
   const save = async () => {
     if (!form.current_password || !form.new_password || !form.confirm_password) { showToast("All fields required.", "err"); return; }

@@ -1,15 +1,36 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.core.cache import cache
 from core.permissions import IsHOD, IsHRM
 from .models import Shift, AttendanceRecord, WorkLocation
 from .serializers import ShiftSerializer, AttendanceRecordSerializer, WorkLocationSerializer
 from employees.models import Employee
 
+# ── Cache keys & TTL ──────────────────────────────────────────────────────────
+SHIFT_LIST_KEY    = 'shifts:list'
+LOCATION_LIST_KEY = 'attendance:locations'
+CACHE_TTL         = 300  # 5 minutes
+
+
 class ShiftListView(generics.ListCreateAPIView):
     permission_classes = (IsAuthenticated,)
     serializer_class   = ShiftSerializer
-    queryset           = Shift.objects.all()
+
+    def get_queryset(self):
+        return Shift.objects.all()
+
+    def list(self, request, *args, **kwargs):
+        cached = cache.get(SHIFT_LIST_KEY)
+        if cached is not None:
+            return Response(cached)
+        response = super().list(request, *args, **kwargs)
+        cache.set(SHIFT_LIST_KEY, response.data, CACHE_TTL)
+        return response
+
+    def perform_create(self, serializer):
+        serializer.save()
+        cache.delete(SHIFT_LIST_KEY)
 
 
 class AttendanceListCreateView(generics.ListCreateAPIView):
@@ -20,16 +41,14 @@ class AttendanceListCreateView(generics.ListCreateAPIView):
         user = self.request.user
         qs   = AttendanceRecord.objects.select_related('employee', 'shift')
 
-        # HODs only see their department
         if user.role == 'HOD':
             qs = qs.filter(employee__department=user.department)
 
-        # Optional filters from query params
-        date       = self.request.query_params.get('date')
-        date_after = self.request.query_params.get('date_after')
+        date        = self.request.query_params.get('date')
+        date_after  = self.request.query_params.get('date_after')
         date_before = self.request.query_params.get('date_before')
-        employee   = self.request.query_params.get('employee')
-        department = self.request.query_params.get('department')
+        employee    = self.request.query_params.get('employee')
+        department  = self.request.query_params.get('department')
 
         if date:        qs = qs.filter(date=date)
         if date_after:  qs = qs.filter(date__gte=date_after)
@@ -43,7 +62,6 @@ class AttendanceListCreateView(generics.ListCreateAPIView):
         serializer.save(marked_by=self.request.user.username)
 
     def create(self, request, *args, **kwargs):
-        # Only HODs and HRM can mark attendance
         if request.user.role not in ('HOD', 'HOD_ACCOUNTS', 'HRM'):
             return Response(
                 {'error': 'You do not have permission to mark attendance.'},
@@ -62,6 +80,7 @@ class AttendanceDetailView(generics.RetrieveUpdateAPIView):
             return AttendanceRecord.objects.filter(employee__department=user.department)
         return AttendanceRecord.objects.all()
 
+
 class WorkLocationListCreateView(generics.ListCreateAPIView):
     """
     GET  /api/attendance/locations/  — returns all saved locations (sorted)
@@ -69,17 +88,27 @@ class WorkLocationListCreateView(generics.ListCreateAPIView):
     """
     permission_classes = (IsAuthenticated,)
     serializer_class   = WorkLocationSerializer
-    queryset           = WorkLocation.objects.all()
+
+    def get_queryset(self):
+        return WorkLocation.objects.all()
+
+    def list(self, request, *args, **kwargs):
+        cached = cache.get(LOCATION_LIST_KEY)
+        if cached is not None:
+            return Response(cached)
+        response = super().list(request, *args, **kwargs)
+        cache.set(LOCATION_LIST_KEY, response.data, CACHE_TTL)
+        return response
 
     def create(self, request, *args, **kwargs):
-        raw  = request.data.get('name', '').strip()
+        raw = request.data.get('name', '').strip()
         if not raw:
             return Response({'error': 'name is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Case-insensitive lookup — avoid duplicates like "unki" vs "Unki"
         existing = WorkLocation.objects.filter(name__iexact=raw).first()
         if existing:
             return Response(WorkLocationSerializer(existing).data, status=status.HTTP_200_OK)
 
         obj = WorkLocation.objects.create(name=raw, created_by=request.user.username)
+        cache.delete(LOCATION_LIST_KEY)
         return Response(WorkLocationSerializer(obj).data, status=status.HTTP_201_CREATED)

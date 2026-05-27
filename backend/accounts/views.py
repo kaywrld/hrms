@@ -2,12 +2,20 @@ from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+from django.contrib.auth import password_validation
+from django.core.exceptions import ValidationError as DjangoValidationError
 from core.permissions import CanManageAdmins, CanDeleteData
 from .models import AdminUser, LoginActivity
 from .serializers import CustomTokenObtainPairSerializer, AdminUserSerializer, LoginActivitySerializer
+
+
+class LoginRateThrottle(AnonRateThrottle):
+    """Dedicated per-IP throttle for the login endpoint: 5/min, 20/hour."""
+    scope = 'login'
 
 
 def get_client_ip(request):
@@ -19,6 +27,7 @@ def get_client_ip(request):
 
 class LoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
@@ -163,6 +172,12 @@ class ResetUserPasswordView(APIView):
             if len(new_password) < 8:
                 return Response({'error': 'Password must be at least 8 characters.'}, status=status.HTTP_400_BAD_REQUEST)
 
+            # Run all AUTH_PASSWORD_VALIDATORS (similarity, common, numeric, length)
+            try:
+                password_validation.validate_password(new_password, target_user)
+            except DjangoValidationError as e:
+                return Response({'error': list(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
             target_user.set_password(new_password)
             target_user.save()
             return Response(
@@ -193,6 +208,12 @@ class ChangeOwnPasswordView(APIView):
             return Response({'error': 'New password must be at least 8 characters.'}, status=status.HTTP_400_BAD_REQUEST)
         if current_password == new_password:
             return Response({'error': 'New password must be different from your current password.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Run all AUTH_PASSWORD_VALIDATORS
+        try:
+            password_validation.validate_password(new_password, user)
+        except DjangoValidationError as e:
+            return Response({'error': list(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_password(new_password)
         user.must_change_password = False

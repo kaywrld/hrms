@@ -1,4 +1,14 @@
 from django.db import models
+from django.core.validators import FileExtensionValidator
+
+# Max upload sizes
+MAX_IMAGE_SIZE_MB  = 5
+MAX_DOC_SIZE_MB    = 10
+MAX_IMAGE_BYTES    = MAX_IMAGE_SIZE_MB  * 1024 * 1024
+MAX_DOC_BYTES      = MAX_DOC_SIZE_MB   * 1024 * 1024
+
+ALLOWED_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp']
+ALLOWED_DOC_EXTS   = ['pdf', 'doc', 'docx']
 
 class Department(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -27,7 +37,10 @@ class Employee(models.Model):
     phone_number      = models.CharField(max_length=20)
     email             = models.EmailField(blank=True)
     address           = models.TextField()
-    profile_picture   = models.ImageField(upload_to='profile_pics/', blank=True, null=True)
+    profile_picture   = models.ImageField(
+        upload_to='profile_pics/', blank=True, null=True,
+        validators=[FileExtensionValidator(allowed_extensions=ALLOWED_IMAGE_EXTS)],
+    )
 
     # Employment Info
     employee_number   = models.CharField(max_length=30, unique=True)
@@ -61,8 +74,14 @@ class Employee(models.Model):
                                                 ('certificate','Certificate'),('diploma','Diploma'),
                                                 ('degree','Degree'),('honours','Honours Degree'),
                                                 ('masters','Masters'),('phd','PhD')])
-    cv                           = models.FileField(upload_to='employee_cvs/', blank=True, null=True)
-    highest_education_certificate = models.FileField(upload_to='education_certs/', blank=True, null=True)
+    cv                           = models.FileField(
+        upload_to='employee_cvs/', blank=True, null=True,
+        validators=[FileExtensionValidator(allowed_extensions=ALLOWED_DOC_EXTS)],
+    )
+    highest_education_certificate = models.FileField(
+        upload_to='education_certs/', blank=True, null=True,
+        validators=[FileExtensionValidator(allowed_extensions=ALLOWED_DOC_EXTS)],
+    )
 
     created_at        = models.DateTimeField(auto_now_add=True)
     updated_at        = models.DateTimeField(auto_now=True)
@@ -89,7 +108,10 @@ class AcademicQualification(models.Model):
     institution   = models.CharField(max_length=200)
     field_of_study = models.CharField(max_length=200)
     year_obtained = models.PositiveIntegerField()
-    certificate   = models.FileField(upload_to='certificates/', blank=True, null=True)
+    certificate   = models.FileField(
+        upload_to='certificates/', blank=True, null=True,
+        validators=[FileExtensionValidator(allowed_extensions=ALLOWED_DOC_EXTS)],
+    )
 
     def __str__(self):
         return f"{self.employee} — {self.level} ({self.institution})"

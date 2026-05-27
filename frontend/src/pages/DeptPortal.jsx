@@ -12,7 +12,7 @@ import { apiFetch, getUser, getToken, clearSession, performLogout, startInactivi
 import { useSearchParams } from "react-router-dom";
 import { DeptPortalProvider, useDeptPortal } from "../context/DeptPortalContext";
 
-const API = "http://127.0.0.1:8000/api";
+const API = "${import.meta.env.VITE_API_BASE_URL}/api";
 
 function authHeaders() {
   const token = getToken();
@@ -175,7 +175,7 @@ function DeptPortalInner() {
             if (emp.profile_picture) {
               const url = emp.profile_picture.startsWith("http")
                 ? emp.profile_picture
-                : `http://127.0.0.1:8000${emp.profile_picture}`;
+                : `${import.meta.env.VITE_API_BASE_URL}${emp.profile_picture}`;
               setPhotoUrl(url);
             }
           }
@@ -1157,7 +1157,7 @@ function DashboardPage({ showToast }) {
                           <div className="dp-emp-avatar">
                             {e.profile_picture ? (
                               <img
-                                src={e.profile_picture.startsWith("http") ? e.profile_picture : `http://127.0.0.1:8000${e.profile_picture}`}
+                                src={e.profile_picture.startsWith("http") ? e.profile_picture : `${import.meta.env.VITE_API_BASE_URL}${e.profile_picture}`}
                                 alt={fullName}
                                 style={{ width: 30, height: 30, objectFit: "cover", borderRadius: 8, display: "block" }}
                                 onError={e2 => { e2.target.style.display = "none"; e2.target.parentNode.textContent = avatarLetters; }}
@@ -1843,7 +1843,7 @@ function AttendancePage({ showToast }) {
                   const rec = records[e.id];
                   const isSaving = saving[e.id];
                   const imgSrc = e.profile_picture
-                    ? (e.profile_picture.startsWith("http") ? e.profile_picture : `http://127.0.0.1:8000${e.profile_picture}`)
+                    ? (e.profile_picture.startsWith("http") ? e.profile_picture : `${import.meta.env.VITE_API_BASE_URL}${e.profile_picture}`)
                     : null;
 
                   return (
@@ -2252,7 +2252,7 @@ function EmployeeProfileView({ emp, onBack }) {
   const fullName = [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ");
   const initials = `${emp.first_name?.[0] || ""}${emp.last_name?.[0] || ""}`.toUpperCase();
   const imgSrc   = emp.profile_picture
-    ? (emp.profile_picture.startsWith("http") ? emp.profile_picture : `http://127.0.0.1:8000${emp.profile_picture}`)
+    ? (emp.profile_picture.startsWith("http") ? emp.profile_picture : `${import.meta.env.VITE_API_BASE_URL}${emp.profile_picture}`)
     : null;
 
   const statusStyle = {

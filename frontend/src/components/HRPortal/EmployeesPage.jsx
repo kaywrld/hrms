@@ -13,7 +13,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { apiFetch, getToken, refreshToken, notifyModalOpen, notifyModalClose } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
 
-const API = "http://127.0.0.1:8000/api";
+const API = "${import.meta.env.VITE_API_BASE_URL}/api";
 
 // ── Zimbabwe Public Holidays (fixed dates, YYYY-MM-DD) ────────────────────────
 const ZW_PUBLIC_HOLIDAYS_RECURRING = [
@@ -256,7 +256,7 @@ function DocUpload({ label, accept, file, onChange, existingUrl, hint }) {
       {existingUrl && !file && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #e2e8f0" }}>
           <a
-            href={existingUrl.startsWith("http") ? existingUrl : `http://127.0.0.1:8000${existingUrl.startsWith("/") ? "" : "/media/"}${existingUrl}`}
+            href={existingUrl.startsWith("http") ? existingUrl : `${import.meta.env.VITE_API_BASE_URL}${existingUrl.startsWith("/") ? "" : "/media/"}${existingUrl}`}
             target="_blank"
             rel="noopener noreferrer"
             style={{

@@ -18,7 +18,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { apiFetch } from "../../utils/auth";
 import { useMDPortal } from "../../context/MDPortalContext";
 
-const API = "http://127.0.0.1:8000/api";
+const API = "${import.meta.env.VITE_API_BASE_URL}/api";
 
 // ── Responsive hook ───────────────────────────────────────────────────────────
 function useWindowWidth() {

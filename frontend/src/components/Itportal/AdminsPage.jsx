@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useITPortal } from "../../context/ITPortalContext";
 
-const API = "http://127.0.0.1:8000/api";
+const API = "${import.meta.env.VITE_API_BASE_URL}/api";
 
 function authHeaders() {
   const token = localStorage.getItem("access_token");

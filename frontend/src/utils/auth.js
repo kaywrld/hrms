@@ -33,7 +33,7 @@ export const refreshToken = async () => {
   const refresh = getRefresh();
   if (!refresh) { clearSession(); window.location.href = "/"; return; }
   try {
-    const res  = await fetch("http://127.0.0.1:8000/api/auth/token/refresh/", {
+    const res  = await fetch(import.meta.env.VITE_API_BASE_URL + "/api/auth/token/refresh/", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ refresh }),
@@ -88,7 +88,7 @@ export const performLogout = async (reason = "manual") => {
 
   if (refresh && token) {
     try {
-      await fetch("http://127.0.0.1:8000/api/auth/logout/", {
+      await fetch(import.meta.env.VITE_API_BASE_URL + "/api/auth/logout/", {
         method:  "POST",
         headers: {
           "Content-Type": "application/json",
@@ -187,7 +187,7 @@ export const startTokenRefreshTimer = () => {
     if (!refreshTokenValue) return;
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/auth/token/refresh/", {
+      const res = await fetch(import.meta.env.VITE_API_BASE_URL + "/api/auth/token/refresh/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh: refreshTokenValue }),

@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
+from django.core.cache import cache
 from core.permissions import CanViewEmployees, CanEditEmployees, IsHRM, IsHR
 from .models import Department, Employee, AcademicQualification, EmployeeStatusLog
 from .serializers import (
@@ -11,16 +12,47 @@ from .serializers import (
     EmployeeStatusLogSerializer
 )
 
+# ── Cache helpers ─────────────────────────────────────────────────────────────
+DEPT_LIST_KEY    = 'departments:list'
+EMPLOYEE_LIST_KEY = 'employees:list'   # role-scoped keys built at request time
+CACHE_TTL        = 300  # 5 minutes
+
+
 class DepartmentListCreateView(generics.ListCreateAPIView):
     permission_classes = (IsAuthenticated,)
     serializer_class   = DepartmentSerializer
-    queryset           = Department.objects.all().order_by('name')
+
+    def list(self, request, *args, **kwargs):
+        cached = cache.get(DEPT_LIST_KEY)
+        if cached is not None:
+            return Response(cached)
+        response = super().list(request, *args, **kwargs)
+        cache.set(DEPT_LIST_KEY, response.data, CACHE_TTL)
+        return response
+
+    def perform_create(self, serializer):
+        serializer.save()
+        cache.delete(DEPT_LIST_KEY)
+
+    def get_queryset(self):
+        return Department.objects.all().order_by('name')
 
 
 class DepartmentDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = (IsHRM,)
     serializer_class   = DepartmentSerializer
     queryset           = Department.objects.all()
+
+    def perform_update(self, serializer):
+        serializer.save()
+        cache.delete(DEPT_LIST_KEY)
+
+    def perform_destroy(self, instance):
+        if self.request.user.role != 'IT':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only the IT Manager can delete records.')
+        instance.delete()
+        cache.delete(DEPT_LIST_KEY)
 
     def destroy(self, request, *args, **kwargs):
         if request.user.role != 'IT':
@@ -41,19 +73,36 @@ class EmployeeListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        # HODs only see their own department
         if user.role == 'HOD':
             return Employee.objects.filter(department=user.department)
         return Employee.objects.all().order_by('last_name')
 
+    def _cache_key(self):
+        user = self.request.user
+        # Scope key by role so HODs never see another department's cache
+        if user.role == 'HOD':
+            return f'{EMPLOYEE_LIST_KEY}:hod:{user.pk}'
+        return f'{EMPLOYEE_LIST_KEY}:all'
+
+    def list(self, request, *args, **kwargs):
+        key = self._cache_key()
+        cached = cache.get(key)
+        if cached is not None:
+            return Response(cached)
+        response = super().list(request, *args, **kwargs)
+        cache.set(key, response.data, CACHE_TTL)
+        return response
+
     def create(self, request, *args, **kwargs):
-        # IT, HRM, and HR can add employees
         if request.user.role not in ('IT', 'HRM', 'HR'):
             return Response(
                 {'error': 'You do not have permission to add employees.'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        return super().create(request, *args, **kwargs)
+        response = super().create(request, *args, **kwargs)
+        # Bust all employee list caches on write
+        cache.delete_pattern(f'{EMPLOYEE_LIST_KEY}:*')
+        return response
 
 
 class EmployeeDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -72,7 +121,9 @@ class EmployeeDetailView(generics.RetrieveUpdateDestroyAPIView):
                 {'error': 'You do not have permission to edit employees.'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        return super().update(request, *args, **kwargs)
+        response = super().update(request, *args, **kwargs)
+        cache.delete_pattern(f'{EMPLOYEE_LIST_KEY}:*')
+        return response
 
     def destroy(self, request, *args, **kwargs):
         if request.user.role != 'IT':
@@ -80,7 +131,9 @@ class EmployeeDetailView(generics.RetrieveUpdateDestroyAPIView):
                 {'error': 'Only the IT Manager can delete records.'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        return super().destroy(request, *args, **kwargs)
+        response = super().destroy(request, *args, **kwargs)
+        cache.delete_pattern(f'{EMPLOYEE_LIST_KEY}:*')
+        return response
 
 
 class EmployeeStatusChangeView(APIView):
@@ -98,7 +151,6 @@ class EmployeeStatusChangeView(APIView):
             if new_status in ('dismissed', 'retired', 'suspended') and not reason:
                 return Response({'error': 'A reason is required for this status.'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Log the change
             EmployeeStatusLog.objects.create(
                 employee   = employee,
                 old_status = employee.status,
@@ -112,6 +164,7 @@ class EmployeeStatusChangeView(APIView):
             employee.status_changed_at = timezone.now()
             employee.save()
 
+            cache.delete_pattern(f'{EMPLOYEE_LIST_KEY}:*')
             return Response({'message': f'Status updated to {new_status}.'}, status=status.HTTP_200_OK)
 
         except Employee.DoesNotExist:

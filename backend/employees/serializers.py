@@ -1,8 +1,47 @@
 import re
+import imghdr
 from rest_framework import serializers
-from .models import Department, Employee, AcademicQualification, EmployeeStatusLog
+from .models import (
+    Department, Employee, AcademicQualification, EmployeeStatusLog,
+    MAX_IMAGE_BYTES, MAX_DOC_BYTES, MAX_IMAGE_SIZE_MB, MAX_DOC_SIZE_MB,
+)
 
 ZW_ID_REGEX = re.compile(r'^\d{2}-\d{6,7}[A-Z]\d{2}$')
+
+# Allowed MIME signatures for docs (magic bytes)
+_PDF_MAGIC   = b'%PDF'
+_DOCX_MAGIC  = b'PK\x03\x04'  # ZIP-based (docx)
+_DOC_MAGIC   = b'\xd0\xcf\x11\xe0'  # OLE2 (doc)
+
+
+def _validate_doc_file(file, field_name="file"):
+    """Check size and magic bytes for CV / certificate uploads."""
+    if file.size > MAX_DOC_BYTES:
+        raise serializers.ValidationError(
+            {field_name: f"File too large. Maximum size is {MAX_DOC_SIZE_MB} MB."}
+        )
+    header = file.read(8)
+    file.seek(0)
+    if not (header.startswith(_PDF_MAGIC) or
+            header.startswith(_DOCX_MAGIC) or
+            header.startswith(_DOC_MAGIC)):
+        raise serializers.ValidationError(
+            {field_name: "Invalid file type. Only PDF and Word documents are allowed."}
+        )
+
+
+def _validate_image_file(file, field_name="file"):
+    """Check size and image magic bytes for profile pictures."""
+    if file.size > MAX_IMAGE_BYTES:
+        raise serializers.ValidationError(
+            {field_name: f"Image too large. Maximum size is {MAX_IMAGE_SIZE_MB} MB."}
+        )
+    img_type = imghdr.what(file)
+    file.seek(0)
+    if img_type not in ('jpeg', 'png', 'webp'):
+        raise serializers.ValidationError(
+            {field_name: "Invalid image type. Only JPEG, PNG, and WebP are allowed."}
+        )
 
 class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
@@ -48,6 +87,21 @@ class EmployeeSerializer(serializers.ModelSerializer):
         if not stripped:
             raise serializers.ValidationError("Phone number is required.")
         return stripped
+
+    def validate_profile_picture(self, value):
+        if value:
+            _validate_image_file(value, 'profile_picture')
+        return value
+
+    def validate_cv(self, value):
+        if value:
+            _validate_doc_file(value, 'cv')
+        return value
+
+    def validate_highest_education_certificate(self, value):
+        if value:
+            _validate_doc_file(value, 'highest_education_certificate')
+        return value
 
     def validate(self, attrs):
         # Duplicate check: same first name + last name + DOB + national ID
