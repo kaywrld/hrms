@@ -526,8 +526,13 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
       const results = Array.isArray(data) ? data : (data?.results || []);
       const others  = isEdit ? results.filter(e => e.id !== employee?.id) : results;
 
-      if (others.length > 0) {
-        const found = others[0];
+      // Filter to only employees whose national_id actually matches
+      const matches = others.filter(e =>
+        e.national_id?.trim().toUpperCase() === val
+      );
+
+      if (matches.length > 0) {
+        const found = matches[0];
         const name  = `${found.first_name} ${found.last_name}`.trim();
         setIdCheckState("taken");
         setIdCheckMsg(`Already registered: ${name} (${found.employee_number})`);

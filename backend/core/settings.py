@@ -22,12 +22,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-1ca6h!)f4$p3ce#3(9-y^b)y5_hpht@7&u2srg3w%lq_s260xo'
+SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
 
 
 # Application definition
@@ -84,6 +84,9 @@ DATABASES = {
 # Redis Cache
 CACHES = {
     'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+    },
+    'redis': {
         'BACKEND': 'django_redis.cache.RedisCache',
         'LOCATION': 'redis://127.0.0.1:6379/1',
         'OPTIONS': {
@@ -97,7 +100,10 @@ import os
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-CORS_ALLOW_ALL_ORIGINS = True  # tighten this later in production
+CORS_ALLOWED_ORIGINS = config(
+    'CORS_ALLOWED_ORIGINS',
+    default='http://localhost:5173,http://127.0.0.1:5173'
+).split(',')
 
 AUTH_USER_MODEL = 'accounts.AdminUser'
 
@@ -129,6 +135,14 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '5/minute',
+        'user': '300/minute',
+    },
 }
 
 SIMPLE_JWT = {
@@ -136,7 +150,7 @@ SIMPLE_JWT = {
     # Refresh token: long-lived (1 day). This is what keeps the session alive.
     # The stale-session check in serializers.py uses 24h to match this.
     'ACCESS_TOKEN_LIFETIME':   timedelta(minutes=10),
-    'REFRESH_TOKEN_LIFETIME':  timedelta(minutes=4),
+    'REFRESH_TOKEN_LIFETIME':  timedelta(days=1),
     'ROTATE_REFRESH_TOKENS':   True,
     'BLACKLIST_AFTER_ROTATION': True,   # ← required when token_blacklist is installed
     'AUTH_HEADER_TYPES':       ('Bearer',),
@@ -181,3 +195,14 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Security headers — safe to have on localhost, essential in production
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = 'DENY'
+
+# These only activate when DEBUG=False (production), so they won't affect localhost
+SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=False, cast=bool)
+SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=False, cast=bool)
+CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=False, cast=bool)
+SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=0, cast=int)

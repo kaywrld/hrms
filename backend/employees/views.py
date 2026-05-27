@@ -23,12 +23,6 @@ class DepartmentDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset           = Department.objects.all()
 
     def destroy(self, request, *args, **kwargs):
-        return Response(
-            {'error': 'Deletion is not permitted.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
-
-    def destroy(self, request, *args, **kwargs):
         if request.user.role != 'IT':
             return Response(
                 {'error': 'Only the IT Manager can delete records.'},
@@ -79,12 +73,6 @@ class EmployeeDetailView(generics.RetrieveUpdateDestroyAPIView):
                 status=status.HTTP_403_FORBIDDEN
             )
         return super().update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        return Response(
-            {'error': 'Employee deletion is not permitted.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
 
     def destroy(self, request, *args, **kwargs):
         if request.user.role != 'IT':
