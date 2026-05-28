@@ -5,7 +5,7 @@ import EmployeesPage from "../components/Itportal/EmployeesPage";
 import AdminsPage   from "../components/Itportal/Adminspage";
 import { ITPortalProvider, useITPortal } from "../context/ITPortalContext";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 function authHeaders() {
   const token = getToken();

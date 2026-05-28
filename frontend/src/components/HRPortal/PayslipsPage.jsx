@@ -15,7 +15,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { apiFetch } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 // ── Company info ───────────────────────────────────────────────────────────────
 const COMPANY = {

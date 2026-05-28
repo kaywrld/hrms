@@ -13,7 +13,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { apiFetch, getToken, refreshToken, notifyModalOpen, notifyModalClose } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 // ── Zimbabwe Public Holidays (fixed dates, YYYY-MM-DD) ────────────────────────
 const ZW_PUBLIC_HOLIDAYS_RECURRING = [

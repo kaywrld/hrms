@@ -50,7 +50,8 @@ export default function Login() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("${import.meta.env.VITE_API_BASE_URL}/api/auth/login/", {
+      // ✅ Fixed — backticks make it a template literal
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/login/`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ username: form.username, password: form.password }),

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useITPortal } from "../../context/ITPortalContext";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 function authHeaders() {
   const token = localStorage.getItem("access_token");

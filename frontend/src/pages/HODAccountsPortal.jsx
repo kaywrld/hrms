@@ -23,7 +23,7 @@ import HRAttendancePage from "../components/HRPortal/AttendancePage";
 import HRPayrollPage    from "../components/HRPortal/PayrollPage";
 import HRPayslipsPage   from "../components/HRPortal/PayslipsPage";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 // ─── Nav items (HR set minus Admins, plus Mark Register) ─────────────────────
 const NAV_ITEMS = [

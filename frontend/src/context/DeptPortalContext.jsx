@@ -10,7 +10,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { apiFetch, getUser } from "../utils/auth";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 const ATTENDANCE_TTL_MS = 5 * 60 * 1000; // 5 min
 const LOC_CACHE_KEY = "hrms_location_registry";
 

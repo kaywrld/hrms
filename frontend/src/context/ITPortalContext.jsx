@@ -8,7 +8,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { apiFetch } from "../utils/auth";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 const ITPortalContext = createContext(null);
 

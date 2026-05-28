@@ -4,7 +4,7 @@ import {
   } from "react";
   import { apiFetch, getUser } from "../utils/auth";
   
-  const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+  const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
   const HRPortalContext = createContext(null);
   
   export function HRPortalProvider({ children }) {

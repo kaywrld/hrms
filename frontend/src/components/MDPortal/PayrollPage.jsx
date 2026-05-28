@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { apiFetch } from "../../utils/auth";
 import { useMDPortal } from "../../context/MDPortalContext";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C = {

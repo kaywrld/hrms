@@ -12,7 +12,7 @@ import { apiFetch, getUser, getToken, clearSession, performLogout, startInactivi
 import { useSearchParams } from "react-router-dom";
 import { DeptPortalProvider, useDeptPortal } from "../context/DeptPortalContext";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 function authHeaders() {
   const token = getToken();

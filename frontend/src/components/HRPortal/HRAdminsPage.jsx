@@ -8,7 +8,7 @@ import { useState, useEffect, useRef } from "react";
 import { apiFetch } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 // ── Role config (no IT) ───────────────────────────────────────────────────────
 const ROLES = [

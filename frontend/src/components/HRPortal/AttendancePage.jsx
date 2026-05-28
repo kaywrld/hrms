@@ -137,7 +137,7 @@ async function generateAndDownloadPDF(title, headers, rows, filename, meta = "")
   printWindow.document.close();
 }
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 // ── Status config ─────────────────────────────────────────────────────────────
 const STATUS_CONFIG = {

@@ -17,7 +17,7 @@ import { useSearchParams } from "react-router-dom";
 import { apiFetch } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
 
-const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 // ── Zimbabwe Public Holidays (same logic as EmployeesPage) ────────────────────
 const ZW_PUBLIC_HOLIDAYS_RECURRING = [

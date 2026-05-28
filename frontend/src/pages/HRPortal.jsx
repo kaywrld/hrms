@@ -1493,7 +1493,7 @@ function _EditSelect({ value, onChange, options, placeholder }) {
 }
 
 function EditEmployeeModal({ employee, departments, onClose, showToast, onSave }) {
-  const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+  const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("banking"); // "banking" | "personal" | "employment"
 
@@ -2410,7 +2410,7 @@ function EditProfileModal({ user, onClose, showToast }) {
     username:  user?.username || "",
   });
   const [busy, setBusy] = useState(false);
-  const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+  const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
   const save = async () => {
     if (!form.full_name || !form.email || !form.username) { showToast("Name, username and email are required.", "err"); return; }
@@ -2484,7 +2484,7 @@ function ChangePasswordModal({ onClose, showToast, onSuccess }) {
   const [form, setForm] = useState({ current_password: "", new_password: "", confirm_password: "" });
   const [show, setShow] = useState({ c: false, n: false, cf: false });
   const [busy, setBusy] = useState(false);
-  const API = "${import.meta.env.VITE_API_BASE_URL}/api";
+  const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
   const save = async () => {
     if (!form.current_password || !form.new_password || !form.confirm_password) { showToast("All fields required.", "err"); return; }
