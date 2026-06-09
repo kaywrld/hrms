@@ -797,19 +797,6 @@ function ProfilePage({ user, initials, onEdit, onPassword }) {
   );
 }
 
-// ─── Placeholder page ──────────────────────────────────────────────────────────
-function PlaceholderPage({ name }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 360, color: C.dim, fontFamily: "'DM Sans',sans-serif", gap: 16 }}>
-      <div style={{ width: 72, height: 72, borderRadius: 18, background: "#eff6ff", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={C.mid} strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
-      </div>
-      <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, color: C.text, margin: 0 }}>{name}</h2>
-      <p style={{ fontSize: 14, maxWidth: 300, lineHeight: 1.65, textAlign: "center", margin: 0 }}>This section is coming soon.</p>
-    </div>
-  );
-}
-
 // ─── Dashboard ─────────────────────────────────────────────────────────────────
 function Dashboard() {
   const { stats, employees, departments, loading, errors, sites, fetchEmployeeDetail } = useMDPortal();

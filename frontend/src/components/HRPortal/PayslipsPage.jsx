@@ -21,9 +21,9 @@ const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 const COMPANY = {
   name:    "JECCA",
   tagline: "Human Resources Department",
-  address: "123 Business Avenue, Harare, Zimbabwe",
-  phone:   "+263 77 ",
-  email:   "hr@jeccaengineering.co.zw",
+  address: "3148 Flame Lilly, Bluffhill, Harare, Zimbabwe",
+  phone:   "+263 78 495 1117 ",
+  email:   "info@jeccaengineering.co.zw",
   logo:    "/logo.jpeg",
 };
 
