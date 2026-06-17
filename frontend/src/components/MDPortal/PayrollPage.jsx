@@ -452,7 +452,7 @@ export default function PayrollPage() {
 
   const payrollMap = useMemo(() => {
     const m = {};
-    payrolls.forEach(p => { m[p.employee] = p; });
+    payrolls.forEach(p => { m[p.employee] = p; }); // store entire object
     return m;
   }, [payrolls]);
 

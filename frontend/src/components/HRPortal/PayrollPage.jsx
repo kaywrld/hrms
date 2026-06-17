@@ -539,12 +539,14 @@ function ZigRateModal({ currentRate, onClose, onSave }) {
 // ── Download helpers ──────────────────────────────────────────────────────────
 function downloadCSV(rows, filename, currency, zigRate) {
   const currLabel = currency === "ZIG" ? "ZiG" : "USD";
-  const headers = ["Full Name", "Job Title", "Department", "Days Attended", "Working Days", `Base Salary (${currLabel})`, `Net Salary (${currLabel})`, `Deduction (${currLabel})`, `Bonus (${currLabel})`, `Final Pay (${currLabel})`];
+  const headers = ["Full Name", "Job Title", "Department", "Bank Name", "Account Number", "Days Attended", "Working Days", `Base Salary (${currLabel})`, `Net Salary (${currLabel})`, `Deduction (${currLabel})`, `Bonus (${currLabel})`, `Final Pay (${currLabel})`];
   const lines = [headers.join(","), ...rows.map(r =>
     [
       `"${r.fullName}"`,
       `"${r.jobTitle}"`,
       `"${r.dept}"`,
+      `"${r.bankName}"`,
+      `"${r.bankAccount}"`,
       r.daysAttended,
       r.workingDays,
       r.baseSalary.toFixed(2),
@@ -585,6 +587,7 @@ function downloadPDF(rows, monthLabel, currency, zigRate) {
       <table>
         <thead><tr>
           <th>Full Name</th><th>Job Title</th><th>Dept</th>
+          <th>Bank Name</th><th>Account No.</th>
           <th>Attendance</th><th>Base Salary</th>
           <th class="money">Net Salary</th><th class="money">Deduction</th>
           <th class="money">Bonus</th><th class="money">Final Pay</th>
@@ -592,6 +595,7 @@ function downloadPDF(rows, monthLabel, currency, zigRate) {
         <tbody>
           ${rows.map(r => `<tr>
             <td>${r.fullName}</td><td>${r.jobTitle}</td><td>${r.dept}</td>
+            <td>${r.bankName}</td><td>${r.bankAccount}</td>
             <td>${r.daysAttended}/${r.workingDays} days</td>
             <td class="money">${fmtN(r.baseSalaryUSD)}</td>
             <td class="money">${fmtN(r.netSalaryUSD)}</td>
@@ -737,7 +741,7 @@ export default function HRPayrollPage({ showToast }) {
 
   const payrollMap = useMemo(() => {
     const m = {};
-    payrolls.forEach(p => { m[p.employee] = parseFloat(p.basic_salary) || 0; });
+    payrolls.forEach(p => { m[p.employee] = p; }); // store entire object
     return m;
   }, [payrolls]);
 
@@ -758,7 +762,10 @@ export default function HRPayrollPage({ showToast }) {
   const enriched = useMemo(() => {
     if (!ctxEmployees) return [];
     return ctxEmployees.map(emp => {
-      const monthlySalary = payrollMap[emp.id] || 0;
+      const payrollEntry  = payrollMap[emp.id] || {};
+      const monthlySalary = parseFloat(payrollEntry.basic_salary) || 0; 
+      const bankName      = payrollEntry.bank_name || "—";              
+      const bankAccount   = payrollEntry.bank_account || "—";          
       const dailyRate     = workingDays > 0 ? monthlySalary / workingDays : 0;
       const daysAttended  = attendanceMap[emp.id] || 0;
       const netSalary     = dailyRate * daysAttended;
@@ -775,6 +782,7 @@ export default function HRPayrollPage({ showToast }) {
         deductionStr: edits.deduction || "",
         bonusStr:     edits.bonus || "",
         deductionReason: edits.deductionReason || "",
+        bankName, bankAccount,
       };
     });
   }, [ctxEmployees, payrollMap, attendanceMap, workingDays, departments, payrollEdits]);
@@ -807,6 +815,8 @@ export default function HRPayrollPage({ showToast }) {
     fullName: e.fullName,
     jobTitle: e.job_title || "—",
     dept: e.deptName,
+    bankName: e.bankName,
+    bankAccount: e.bankAccount,
     daysAttended: e.daysAttended,
     workingDays,
     baseSalary: currency === "ZIG" ? e.monthlySalary * (parseFloat(zigRate) || 1) : e.monthlySalary,

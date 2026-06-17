@@ -1,15 +1,7 @@
 // src/components/HRPortal/PayslipsPage.jsx
 //
 // HR Payslips Page — Professional payslip viewer & PDF generator
-// Features:
-//  - Month navigation
-//  - Search bar to filter employees
-//  - Stacked payslips, one per employee
-//  - Per-payslip download button + bulk download all
-//  - Hours calculation: normal 07:00–17:00 = 10h; late arrival uses arrival_time
-//  - Deduction reason shown in footer summary
-//  - Company header (logo, name, address, contact) + Employee details on right
-//  - Uses same localStorage keys as PayrollPage for deduction/bonus/reason
+// Clean letterhead-style design: white background, fine rules, no colour fills
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { apiFetch } from "../../utils/auth";
@@ -19,18 +11,45 @@ const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 // ── Company info ───────────────────────────────────────────────────────────────
 const COMPANY = {
-  name:    "JECCA",
-  tagline: "Human Resources Department",
-  address: "3148 Flame Lilly, Bluffhill, Harare, Zimbabwe",
-  phone:   "+263 78 495 1117 ",
+  name:    "JECCA ENGINEERING (PVT) LTD",
+  tagline: "Premium Quality Engineering",
+  address: "3148 Lavenham Drive, Bluffhill, Harare, Zimbabwe",
+  phone:   "Cell: 071 948 2663/078 495 1117",
   email:   "info@jeccaengineering.co.zw",
   logo:    "/logo.jpeg",
+  hrManager: "Brighton Mukundwi",
+  hrTitle:   "Human Resource Manager, Jecca Engineering (Pvt) Ltd",
+};
+
+// ── Design tokens ──────────────────────────────────────────────────────────────
+// Navy is now used only for text/rules/accents — never as a solid fill block.
+const T = {
+  navy:       "#0a2a5e",
+  navyMid:    "#1557b0",
+  navyLight:  "#1a6fd4",
+  navyBg:     "#f7f9fc",   // very faint tint, used sparingly
+  navyBorder: "#bfdbfe",
+  red:        "#b91c1c",
+  redBg:      "#fdf5f5",
+  redBorder:  "#f0c4c4",
+  green:      "#15803d",
+  greenBg:    "#f5faf6",
+  greenBorder:"#cfe8d4",
+  amber:      "#b45309",
+  amberBg:    "#fcf8f1",
+  amberBorder:"#ecdcb8",
+  ink:        "#1a2233",
+  muted:      "#5b6472",
+  faint:      "#94a3b8",
+  line:       "#dde3ea",
+  lineFaint:  "#eef1f5",
+  pageBg:     "#f0f4f8",
 };
 
 // ── Working hours constants ────────────────────────────────────────────────────
 const WORK_START_H = 7;
 const WORK_END_H   = 17;
-const FULL_HOURS   = WORK_END_H - WORK_START_H; // 10 hours
+const FULL_HOURS   = WORK_END_H - WORK_START_H;
 
 // ── Zimbabwean public holidays ─────────────────────────────────────────────────
 const ZW_RECURRING = ["01-01","02-21","04-18","05-01","05-25","08-11","08-12","12-22","12-25","12-26"];
@@ -78,8 +97,7 @@ function hoursForRecord(rec) {
     if (rec.arrival_time) {
       const parts = rec.arrival_time.split(":").map(Number);
       const arrH = parts[0] + (parts[1] || 0) / 60;
-      const worked = Math.max(0, WORK_END_H - arrH);
-      return Math.round(worked * 100) / 100;
+      return Math.round(Math.max(0, WORK_END_H - arrH) * 100) / 100;
     }
     return FULL_HOURS - 1;
   }
@@ -88,7 +106,7 @@ function hoursForRecord(rec) {
 
 // ── Format helpers ─────────────────────────────────────────────────────────────
 function fmtUSD(n) {
-  return `$${Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  return `$${Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 }
 function fmtHours(h) {
   if (!h) return "0h 0m";
@@ -104,6 +122,11 @@ function fmtDate(dateStr) {
   const [y,m,d] = dateStr.split("-");
   return `${d}/${m}/${y}`;
 }
+function fmtDateLong(dateStr) {
+  if (!dateStr) return "—";
+  const [y,m,d] = dateStr.split("-").map(Number);
+  return new Date(y, m-1, d).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
+}
 
 // ── localStorage helpers (same keys as PayrollPage) ───────────────────────────
 function lsKey(empId, year, month) {
@@ -116,12 +139,14 @@ function loadEdits(empId, year, month) {
   } catch { return { deduction:"", bonus:"", deductionReason:"" }; }
 }
 
-// ── PDF generation — direct download, no print dialog ─────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF generation — renders HTML off-screen then saves via jsPDF + html2canvas
+// ─────────────────────────────────────────────────────────────────────────────
 async function generateAndDownloadPDF(htmlContent, filename = "payslips.pdf") {
   const { default: jsPDF }       = await import("jspdf");
   const { default: html2canvas } = await import("html2canvas");
 
-  // 1. Pre-fetch logo → base64 to avoid canvas taint
+  // Pre-fetch logo → base64 to avoid canvas taint
   let logoDataUrl = null;
   try {
     const res  = await fetch(COMPANY.logo);
@@ -131,9 +156,7 @@ async function generateAndDownloadPDF(htmlContent, filename = "payslips.pdf") {
       reader.onload = () => resolve(reader.result);
       reader.readAsDataURL(blob);
     });
-  } catch {
-    logoDataUrl = null;
-  }
+  } catch { logoDataUrl = null; }
 
   let safeHtml = htmlContent;
   if (logoDataUrl) {
@@ -142,56 +165,42 @@ async function generateAndDownloadPDF(htmlContent, filename = "payslips.pdf") {
       `src="${logoDataUrl}"`
     );
   } else {
-    safeHtml = safeHtml.replace(/<img[^>]*>/g, '');
+    safeHtml = safeHtml.replace(/<img[^>]*logo[^>]*>/gi, '');
   }
 
-  // 2. Mount hidden off-screen container
   const container = document.createElement("div");
   container.style.cssText = [
-    "position:fixed",
-    "left:-9999px",
-    "top:0",
-    "width:794px",
-    "background:#fff",
-    "z-index:-9999",
+    "position:fixed","left:-9999px","top:0",
+    "width:794px","background:#fff","z-index:-9999",
     "font-family:'DM Sans',sans-serif",
   ].join(";");
   container.innerHTML = safeHtml;
   document.body.appendChild(container);
 
-  // Allow fonts/layout to settle
   await new Promise(r => setTimeout(r, 600));
 
   const wrappers = container.querySelectorAll(".payslip-wrapper");
   const nodes    = wrappers.length > 0 ? Array.from(wrappers) : [container];
 
-  const pdf     = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
-  const A4_W    = 210;
-  const A4_H    = 297;
-  const MAX_PX  = 3000; // cap canvas to prevent jsPDF DataView overflow
+  const pdf    = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+  const A4_W   = 210;
+  const A4_H   = 297;
+  const MAX_PX = 3000;
 
   for (let i = 0; i < nodes.length; i++) {
-    const node      = nodes[i];
-    const nodeH     = node.getBoundingClientRect().height;
-    const scale     = nodeH > 1200 ? 1 : 2;
+    const node   = nodes[i];
+    const nodeH  = node.getBoundingClientRect().height;
+    const scale  = nodeH > 1200 ? 1 : 2;
 
     let canvas;
     try {
       canvas = await html2canvas(node, {
-        scale,
-        useCORS: true,
-        allowTaint: false,
-        backgroundColor: "#ffffff",
-        logging: false,
-        windowWidth: 794,
-        width: 794,
+        scale, useCORS: true, allowTaint: false,
+        backgroundColor: "#ffffff", logging: false,
+        windowWidth: 794, width: 794,
       });
-    } catch (err) {
-      console.error("html2canvas failed for node", i, err);
-      continue;
-    }
+    } catch (err) { console.error("html2canvas failed", i, err); continue; }
 
-    // Resize canvas if too large (prevents DataView RangeError in jsPDF)
     let finalCanvas = canvas;
     if (canvas.width > MAX_PX || canvas.height > MAX_PX) {
       const ratio   = Math.min(MAX_PX / canvas.width, MAX_PX / canvas.height);
@@ -203,14 +212,10 @@ async function generateAndDownloadPDF(htmlContent, filename = "payslips.pdf") {
     }
 
     let imgData;
-    try {
-      imgData = finalCanvas.toDataURL("image/jpeg", 0.85);
-    } catch (err) {
-      console.error("toDataURL failed:", err);
-      continue;
-    }
+    try { imgData = finalCanvas.toDataURL("image/jpeg", 0.88); }
+    catch (err) { console.error("toDataURL failed:", err); continue; }
 
-    const pxPerMm    = finalCanvas.width / A4_W;
+    const pxPerMm     = finalCanvas.width / A4_W;
     const imgHeightMm = finalCanvas.height / pxPerMm;
 
     if (i > 0) pdf.addPage();
@@ -218,35 +223,32 @@ async function generateAndDownloadPDF(htmlContent, filename = "payslips.pdf") {
     if (imgHeightMm <= A4_H) {
       pdf.addImage(imgData, "JPEG", 0, 0, A4_W, imgHeightMm);
     } else {
-      // Paginate tall payslips
-      let yOffset   = 0;
-      let pageIndex = 0;
+      let yOffset = 0, pageIndex = 0;
       while (yOffset < imgHeightMm) {
         if (pageIndex > 0) pdf.addPage();
         pdf.addImage(imgData, "JPEG", 0, -yOffset, A4_W, imgHeightMm);
-        yOffset += A4_H;
-        pageIndex++;
+        yOffset += A4_H; pageIndex++;
       }
     }
   }
 
   document.body.removeChild(container);
-
-  // Direct download — no print dialog
   pdf.save(filename);
 }
 
-// ── Single Payslip component ───────────────────────────────────────────────────
-function Payslip({ emp, year, month, attendanceRecs, payrollRecord, edits }) {
-  const deduction       = parseFloat(edits?.deduction) || 0;
-  const bonus           = parseFloat(edits?.bonus) || 0;
-  const deductionReason = edits?.deductionReason || "";
+// ─────────────────────────────────────────────────────────────────────────────
+// PayslipDocument — the clean, printable payslip card shown on screen
+// ─────────────────────────────────────────────────────────────────────────────
+function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edits }) {
+  const deduction       = parseFloat(edits?.deduction)       || 0;
+  const bonus           = parseFloat(edits?.bonus)           || 0;
+  const deductionReason = edits?.deductionReason             || "";
 
-  const workingDays = getWorkingDays(year, month);
-  const basicSalary = parseFloat(payrollRecord?.basic_salary) || 0;
-  const allowances  = parseFloat(payrollRecord?.allowances)   || 0;
-  const dailyRate   = workingDays > 0 ? basicSalary / workingDays : 0;
-  const hourlyRate  = FULL_HOURS  > 0 ? dailyRate / FULL_HOURS   : 0;
+  const workingDays   = getWorkingDays(year, month);
+  const basicSalary   = parseFloat(payrollRecord?.basic_salary) || 0;
+  const allowances    = parseFloat(payrollRecord?.allowances)   || 0;
+  const dailyRate     = workingDays > 0 ? basicSalary / workingDays : 0;
+  const hourlyRate    = FULL_HOURS  > 0 ? dailyRate   / FULL_HOURS  : 0;
 
   const dayRecords = useMemo(() => {
     return attendanceRecs
@@ -258,279 +260,556 @@ function Payslip({ emp, year, month, attendanceRecs, payrollRecord, edits }) {
   }, [attendanceRecs, emp.id]);
 
   const presentRecs  = dayRecords.filter(r => ["present","late","half_day"].includes(r.status));
+  const absentRecs   = dayRecords.filter(r => r.status === "absent");
   const daysAttended = presentRecs.reduce((s,r) => s + (r.status==="half_day"?0.5:1), 0);
+  const daysAbsent   = absentRecs.length;
   const totalHours   = presentRecs.reduce((s,r) => s + hoursForRecord(r), 0);
   const lateRecs     = presentRecs.filter(r => r.status === "late");
 
-  const grossEarnings = dailyRate * daysAttended + allowances;
-  const netPay        = Math.max(0, grossEarnings - deduction + bonus);
+  // Gross = attendance-prorated salary + allowances
+  const attendanceEarning = dailyRate * daysAttended;
+  const grossEarnings     = attendanceEarning + allowances + bonus;
+  const totalDeductions   = deduction;
+  const netPay            = Math.max(0, grossEarnings - totalDeductions);
 
   const fullName   = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
   const jobTitle   = emp.job_title || emp.position || "—";
   const department = emp.department_name || "—";
-  const empId      = emp.employee_id || emp.emp_id || `EMP${String(emp.id).padStart(4,"0")}`;
-  const bankName   = payrollRecord?.bank_name || emp.bank_name || "—";
+  const empNo      = emp.employee_number || emp.employee_id || emp.emp_id || `JE-${String(emp.id).padStart(3,"0")}`;
+  const bankName   = payrollRecord?.bank_name   || emp.bank_name   || "—";
   const bankAcct   = payrollRecord?.bank_account || emp.bank_account || "—";
-  const phone      = emp.phone_number || emp.phone || "—";
-  const email      = emp.email || "—";
-  const joinDate   = emp.date_joined || emp.join_date || "";
+  const natId      = emp.national_id || emp.national_id_number || "—";
+  const address    = emp.address || emp.home_address || "—";
   const currency   = payrollRecord?.currency || "USD";
+  const joinDate   = emp.date_joined || emp.join_date || "";
+  const payPeriod  = monthLabel(year, month);
+  const today      = fmtDateLong(new Date().toISOString().slice(0,10));
+
+  // ── Shared cell style ──
+  const th = {
+    padding: "10px 4px",
+    background: "#fff",
+    color: T.navy,
+    fontWeight: 700,
+    fontSize: 10.5,
+    textAlign: "left",
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    borderBottom: `1.5px solid ${T.navy}`,
+  };
+  const td = (right=false, bold=false, color=T.ink) => ({
+    padding: "9px 4px",
+    fontSize: 12.5,
+    color,
+    fontWeight: bold ? 700 : 400,
+    textAlign: right ? "right" : "left",
+    fontFamily: right ? "monospace" : "'DM Sans',sans-serif",
+    borderBottom: `1px solid ${T.lineFaint}`,
+  });
+  const labelCell = {
+    padding: "8px 4px",
+    fontSize: 10.5,
+    fontWeight: 700,
+    color: T.muted,
+    background: "#fff",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    whiteSpace: "nowrap",
+    width: "28%",
+    borderBottom: `1px solid ${T.lineFaint}`,
+  };
+  const valueCell = {
+    padding: "8px 4px",
+    fontSize: 12.5,
+    color: T.ink,
+    borderBottom: `1px solid ${T.lineFaint}`,
+    background: "#fff",
+  };
 
   return (
     <div
       className="payslip-card"
       style={{
+        position: "relative",
         background: "#fff",
-        border: "1px solid #e2e8f0",
-        borderRadius: 16,
-        boxShadow: "0 2px 16px rgba(10,42,94,0.07)",
+        border: `1px solid ${T.line}`,
+        borderRadius: 2,
+        boxShadow: "0 4px 24px rgba(10,42,94,0.08)",
         overflow: "hidden",
         fontFamily: "'DM Sans', sans-serif",
+        maxWidth: 794,
+        width: "100%",
+        margin: "0 auto",
+        padding: "44px 48px",
       }}
     >
-      {/* ── HEADER ── */}
-      <div style={{
-        background: "linear-gradient(135deg, #0a2a5e 0%, #1557b0 60%, #1a6fd4 100%)",
-        padding: "22px 28px",
-        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
-      }}>
-        {/* Left: Company */}
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 12, background: "#fff",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-          }}>
-            <img
-              src={COMPANY.logo}
-              alt={COMPANY.name}
-              style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              onError={e => {
-                e.target.style.display = "none";
-                e.target.parentElement.innerHTML = `<span style="font-size:20px;font-weight:800;color:#0a2a5e;font-family:'Playfair Display',serif">${COMPANY.name[0]}</span>`;
-              }}
-            />
-          </div>
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: "'Playfair Display', serif", letterSpacing: "0.02em" }}>
-              {COMPANY.name}
-            </div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", marginTop: 1, fontWeight: 500 }}>
-              {COMPANY.tagline}
-            </div>
-            <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.55)", marginTop: 4, lineHeight: 1.6 }}>
-              {COMPANY.address}<br />
-              📞 {COMPANY.phone} &nbsp;·&nbsp; ✉ {COMPANY.email}
-            </div>
-          </div>
-        </div>
+      {/* ── WATERMARK: centred, faint, behind all content ── */}
+      <img
+        src={COMPANY.logo}
+        alt=""
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          width: 380,
+          height: 380,
+          objectFit: "contain",
+          opacity: 0.06,
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
+        onError={e => { e.target.style.display = "none"; }}
+      />
 
-        {/* Centre: Title */}
-        <div style={{ textAlign: "center", flexShrink: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.55)", marginBottom: 4 }}>PAYSLIP</div>
-          <div style={{
-            fontSize: 16, fontWeight: 700, color: "#fff",
-            background: "rgba(255,255,255,0.12)", borderRadius: 8, padding: "4px 14px",
-            border: "1px solid rgba(255,255,255,0.2)",
-          }}>
-            {monthLabel(year, month)}
-          </div>
-        </div>
+      {/* ── Content sits above the watermark ── */}
+      <div style={{ position: "relative", zIndex: 1 }}>
 
-        {/* Right: Employee */}
-        <div style={{
-          background: "rgba(255,255,255,0.08)", borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.15)",
-          padding: "12px 16px", minWidth: 200,
-        }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 8 }}>{fullName}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "3px 8px", fontSize: 10.5, color: "rgba(255,255,255,0.7)" }}>
-            <span style={{ color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>ID</span>       <span>{empId}</span>
-            <span style={{ color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>Title</span>    <span>{jobTitle}</span>
-            <span style={{ color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>Dept</span>     <span>{department}</span>
-            <span style={{ color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>Phone</span>    <span>{phone}</span>
-            <span style={{ color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>Email</span>    <span style={{ wordBreak: "break-all" }}>{email}</span>
-            <span style={{ color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>Bank</span>     <span>{bankName}</span>
-            <span style={{ color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>Account</span>  <span>{bankAcct}</span>
-            {joinDate && <><span style={{ color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>Joined</span><span>{fmtDate(joinDate)}</span></>}
+      {/* ── HEADER: Logo + Company + Title ── */}
+      <div style={{ paddingBottom: 18, borderBottom: `2px solid ${T.navy}`, marginBottom: 22 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div style={{
+              width: 62, height: 62, flexShrink: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <img
+                src={COMPANY.logo}
+                alt={COMPANY.name}
+                style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                onError={e => {
+                  e.target.style.display = "none";
+                  e.target.parentElement.innerHTML = `<div style="width:62px;height:62px;border:1.5px solid ${T.navy};border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:${T.navy}">J</div>`;
+                }}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: T.navy, letterSpacing: "0.01em", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.15 }}>
+                {COMPANY.name}
+              </div>
+              <div style={{ fontSize: 11.5, color: T.muted, fontStyle: "italic", marginTop: 2 }}>{COMPANY.tagline}</div>
+              <div style={{ fontSize: 10.5, color: T.faint, marginTop: 4, lineHeight: 1.6 }}>
+                {COMPANY.address} &nbsp;·&nbsp; {COMPANY.phone} &nbsp;·&nbsp; {COMPANY.email}
+              </div>
+            </div>
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: T.navy, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+              Payslip
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginTop: 3 }}>
+              {payPeriod}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── BODY ── */}
-      <div style={{ padding: "20px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
+      {/* ── EMPLOYEE DETAILS TABLE ── */}
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 24 }}>
+        <tbody>
+          <tr>
+            <td style={labelCell}>Employee Name</td>
+            <td style={{ ...valueCell, fontWeight: 700, fontSize: 13 }}>{fullName}</td>
+            <td style={labelCell}>Pay Period</td>
+            <td style={{ ...valueCell, fontWeight: 600 }}>{payPeriod}</td>
+          </tr>
+          <tr>
+            <td style={labelCell}>Employee No.</td>
+            <td style={valueCell}>{empNo}</td>
+            <td style={labelCell}>Department</td>
+            <td style={valueCell}>{department}</td>
+          </tr>
+          {natId !== "—" && (
+            <tr>
+              <td style={labelCell}>National ID</td>
+              <td style={valueCell}>{natId}</td>
+              <td style={labelCell}>Position</td>
+              <td style={valueCell}>{jobTitle}</td>
+            </tr>
+          )}
+          {natId === "—" && (
+            <tr>
+              <td style={labelCell}>Position</td>
+              <td style={valueCell}>{jobTitle}</td>
+              <td style={labelCell}>Date Joined</td>
+              <td style={valueCell}>{joinDate ? fmtDate(joinDate) : "—"}</td>
+            </tr>
+          )}
+          <tr>
+            <td style={labelCell}>Address</td>
+            <td style={valueCell}>{address}</td>
+            <td style={labelCell}>Payment Method</td>
+            <td style={valueCell}>
+              {bankName !== "—" ? `Bank Transfer — ${bankName}` : "Cash / Bank Transfer"}
+            </td>
+          </tr>
+          {bankAcct !== "—" && (
+            <tr>
+              <td style={labelCell}>Bank Account</td>
+              <td style={{ ...valueCell, fontFamily: "monospace", letterSpacing: "0.04em" }}>{bankAcct}</td>
+              <td style={labelCell}>Attendance</td>
+              <td style={valueCell}>{daysAttended} / {workingDays} days
+                {daysAbsent > 0 && <span style={{ marginLeft: 8, color: T.red, fontSize: 11 }}>({daysAbsent} absent)</span>}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
 
-        {/* Attendance summary cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-          {[
-            { label: "Working Days",  value: workingDays },
-            { label: "Days Attended", value: daysAttended % 1 === 0 ? daysAttended : daysAttended.toFixed(1) },
-            { label: "Total Hours",   value: fmtHours(totalHours) },
-            { label: "Late Arrivals", value: lateRecs.length },
-          ].map(card => (
-            <div key={card.label} style={{
-              background: "#f8faff", border: "1px solid #e8edf7",
-              borderRadius: 10, padding: "10px 14px", textAlign: "center",
-            }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#0a2a5e", fontFamily: "'Playfair Display',serif" }}>{card.value}</div>
-              <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 2 }}>{card.label}</div>
-            </div>
-          ))}
+      {/* ── EARNINGS & DEDUCTIONS TABLE ── */}
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, width: "50%" }}>Description</th>
+            <th style={{ ...th, textAlign: "right" }}>Earnings ({currency})</th>
+            <th style={{ ...th, textAlign: "right" }}>Deductions ({currency})</th>
+          </tr>
+        </thead>
+        <tbody>
+          {/* Basic salary row */}
+          <tr>
+            <td style={td()}>Basic Salary (Monthly)</td>
+            <td style={td(true)}>{fmtUSD(basicSalary)}</td>
+            <td style={td(true)}>—</td>
+          </tr>
+          {/* Attendance-prorated row */}
+          <tr>
+            <td style={td()}>
+              Attendance Earnings
+              <span style={{ marginLeft: 8, fontSize: 11, color: T.faint }}>
+                ({daysAttended} of {workingDays} days × {fmtUSD(dailyRate)}/day)
+              </span>
+            </td>
+            <td style={td(true)}>{fmtUSD(attendanceEarning)}</td>
+            <td style={td(true)}>—</td>
+          </tr>
+          {/* Hours summary row */}
+          <tr>
+            <td style={td()}>
+              Total Hours Worked
+              <span style={{ marginLeft: 8, fontSize: 11, color: T.faint }}>
+                ({fmtUSD(hourlyRate)}/hr)
+              </span>
+            </td>
+            <td style={{ ...td(true), color: T.muted }}>{fmtHours(totalHours)}</td>
+            <td style={td(true)}>—</td>
+          </tr>
+          {/* Allowances */}
+          {allowances > 0 && (
+            <tr>
+              <td style={td()}>Allowances</td>
+              <td style={td(true)}>{fmtUSD(allowances)}</td>
+              <td style={td(true)}>—</td>
+            </tr>
+          )}
+          {/* Bonus */}
+          {bonus > 0 && (
+            <tr>
+              <td style={{ ...td(), color: T.green }}>Bonus</td>
+              <td style={{ ...td(true), color: T.green, fontWeight: 700 }}>{fmtUSD(bonus)}</td>
+              <td style={td(true)}>—</td>
+            </tr>
+          )}
+          {/* Late penalties info */}
+          {lateRecs.length > 0 && (
+            <tr>
+              <td style={{ ...td(), color: T.amber }}>
+                Late Arrivals ({lateRecs.length} day{lateRecs.length > 1 ? "s" : ""})
+                <span style={{ marginLeft: 6, fontSize: 11, color: T.amber }}>— hours reduced accordingly</span>
+              </td>
+              <td style={{ ...td(true), color: T.amber }}>—</td>
+              <td style={{ ...td(true), color: T.amber }}>Note</td>
+            </tr>
+          )}
+          {/* Deduction */}
+          {deduction > 0 ? (
+            <tr>
+              <td style={{ ...td(), color: T.red }}>
+                Deduction{deductionReason ? ` — ${deductionReason}` : ""}
+              </td>
+              <td style={td(true)}>—</td>
+              <td style={{ ...td(true), color: T.red, fontWeight: 700 }}>{fmtUSD(deduction)}</td>
+            </tr>
+          ) : (
+            <tr>
+              <td style={{ ...td(), color: T.faint, fontStyle: "italic" }}>No deductions this period</td>
+              <td style={td(true)}>—</td>
+              <td style={{ ...td(true), color: T.faint }}>—</td>
+            </tr>
+          )}
+        </tbody>
+        {/* Totals footer */}
+        <tfoot>
+          <tr style={{ borderTop: `1.5px solid ${T.navy}` }}>
+            <td style={{ padding: "12px 4px", fontWeight: 800, fontSize: 12.5, color: T.navy, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Gross Earnings
+            </td>
+            <td style={{ padding: "12px 4px", fontWeight: 800, fontSize: 13.5, color: T.navy, textAlign: "right", fontFamily: "monospace" }}>
+              {fmtUSD(grossEarnings)}
+            </td>
+            <td style={{ padding: "12px 4px", fontWeight: 800, fontSize: 12.5, color: deduction > 0 ? T.red : T.faint, textAlign: "right", fontFamily: "monospace" }}>
+              {deduction > 0 ? fmtUSD(deduction) : "—"}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+
+      {/* ── NET PAY BAND ── */}
+      <div style={{
+        marginTop: 18,
+        padding: "16px 0",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        borderTop: `2px solid ${T.navy}`,
+        borderBottom: `2px solid ${T.navy}`,
+      }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: T.navy, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+          Net Pay
         </div>
+        <div style={{ fontSize: 24, fontWeight: 800, color: T.navy, letterSpacing: "0.01em", fontFamily: "'DM Sans', sans-serif" }}>
+          {fmtUSD(netPay)} {currency}
+        </div>
+      </div>
 
-        {/* Earnings / Deductions */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          {/* Earnings */}
-          <div>
-            <div style={{
-              fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
-              color: "#1557b0", marginBottom: 8, paddingBottom: 6, borderBottom: "2px solid #e0eaff",
-            }}>Earnings</div>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <tbody>
-                {[
-                  { label: "Basic Salary (Monthly)",                          value: fmtUSD(basicSalary) },
-                  { label: `Days Attended (${daysAttended} of ${workingDays})`, value: fmtUSD(dailyRate * daysAttended) },
-                  { label: "Hourly Rate",                                      value: `${fmtUSD(hourlyRate)}/hr` },
-                  { label: "Total Hours Worked",                               value: fmtHours(totalHours) },
-                  ...(allowances > 0 ? [{ label: "Allowances", value: fmtUSD(allowances) }] : []),
-                  ...(bonus      > 0 ? [{ label: "Bonus",      value: fmtUSD(bonus), isGreen: true }] : []),
-                ].map((row, i) => (
-                  <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={{ padding: "6px 0", fontSize: 12, color: "#475569" }}>{row.label}</td>
-                    <td style={{ padding: "6px 0", fontSize: 12, fontWeight: 600, color: row.isGreen ? "#059669" : "#0f172a", textAlign: "right", fontFamily: "monospace" }}>{row.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div style={{
-              marginTop: 8, padding: "8px 0", borderTop: "2px solid #0a2a5e",
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-            }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#0a2a5e" }}>Gross Earnings</span>
-              <span style={{ fontSize: 14, fontWeight: 800, color: "#0a2a5e", fontFamily: "monospace" }}>{fmtUSD(grossEarnings)}</span>
-            </div>
+      {/* ── LATE ARRIVALS DETAIL ── */}
+      {lateRecs.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: T.amber, marginBottom: 8 }}>
+            Late Arrival Details
           </div>
-
-          {/* Deductions */}
-          <div>
-            <div style={{
-              fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
-              color: "#dc2626", marginBottom: 8, paddingBottom: 6, borderBottom: "2px solid #fee2e2",
-            }}>Deductions</div>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <tbody>
-                {deduction > 0 ? (
-                  <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={{ padding: "6px 0", fontSize: 12, color: "#475569" }}>
-                      Deduction{deductionReason ? ` — ${deductionReason}` : ""}
-                    </td>
-                    <td style={{ padding: "6px 0", fontSize: 12, fontWeight: 600, color: "#dc2626", textAlign: "right", fontFamily: "monospace" }}>
-                      -{fmtUSD(deduction)}
-                    </td>
-                  </tr>
-                ) : (
-                  <tr>
-                    <td colSpan={2} style={{ padding: "6px 0", fontSize: 12, color: "#cbd5e1", fontStyle: "italic" }}>No deductions this period</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-            {deduction > 0 && (
-              <div style={{
-                marginTop: 8, padding: "8px 0", borderTop: "2px solid #dc2626",
-                display: "flex", justifyContent: "space-between", alignItems: "center",
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {lateRecs.map(r => (
+              <div key={r.date} style={{
+                fontSize: 11, background: "#fff",
+                border: `1px solid ${T.amberBorder}`,
+                borderRadius: 4, padding: "3px 10px", color: T.amber, fontWeight: 600,
               }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#dc2626" }}>Total Deductions</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: "#dc2626", fontFamily: "monospace" }}>-{fmtUSD(deduction)}</span>
+                {fmtDate(r.date)}{r.arrival_time ? ` · in ${r.arrival_time.slice(0,5)}` : ""} · {fmtHours(hoursForRecord(r))} worked
               </div>
-            )}
+            ))}
           </div>
         </div>
+      )}
 
-        {/* Late arrivals detail */}
-        {lateRecs.length > 0 && (
-          <div style={{ background: "#fff7ed", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 14px" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#92400e", marginBottom: 6 }}>
-              Late Arrival Details
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {lateRecs.map(r => (
-                <div key={r.date} style={{
-                  fontSize: 11, background: "#fef3c7", border: "1px solid #fde68a",
-                  borderRadius: 6, padding: "3px 8px", color: "#92400e", fontWeight: 600,
-                }}>
-                  {fmtDate(r.date)}{r.arrival_time ? ` · ${r.arrival_time.slice(0,5)}` : ""} · {fmtHours(hoursForRecord(r))} worked
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Net Pay */}
+      {/* ── AUTHORISED BY ── */}
+      <div style={{ marginTop: 36 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, marginBottom: 28 }}>Authorised By:</div>
+        <div style={{ borderTop: `1px solid ${T.ink}`, width: 300, paddingTop: 6 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: T.navy }}>{COMPANY.hrManager}</div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>— {COMPANY.hrTitle}</div>
+        </div>
         <div style={{
-          background: "linear-gradient(135deg, #0a2a5e, #1557b0)",
-          borderRadius: 12, padding: "16px 24px",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          marginTop: 28, paddingTop: 14, borderTop: `1px solid ${T.lineFaint}`,
+          fontSize: 10, color: T.faint, fontStyle: "italic", textAlign: "center",
         }}>
-          <div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>Net Pay ({currency})</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", fontFamily: "'Playfair Display',serif", marginTop: 2 }}>{fmtUSD(netPay)}</div>
-          </div>
-          <div style={{ textAlign: "right", fontSize: 11, color: "rgba(255,255,255,0.55)", lineHeight: 1.9 }}>
-            <div>Gross: {fmtUSD(grossEarnings)}</div>
-            {deduction > 0 && <div>Deductions: -{fmtUSD(deduction)}</div>}
-            {bonus > 0      && <div>Bonus: +{fmtUSD(bonus)}</div>}
-            <div style={{ fontWeight: 700, color: "rgba(255,255,255,0.85)" }}>Period: {monthLabel(year, month)}</div>
-          </div>
+          This payslip is computer generated and is valid without a signature. &nbsp;·&nbsp; Generated: {today} &nbsp;·&nbsp; {COMPANY.name} — Confidential
         </div>
+      </div>
 
-        {/* Summary note */}
-        {(deduction > 0 || bonus > 0) && (
-          <div style={{
-            background: "#f8faff", border: "1px solid #e0eaff",
-            borderRadius: 10, padding: "10px 16px",
-            fontSize: 11.5, color: "#475569", lineHeight: 1.7,
-          }}>
-            <span style={{ fontWeight: 700, color: "#0a2a5e" }}>Summary: </span>
-            {deduction > 0 && deductionReason && (
-              <span>You were deducted {fmtUSD(deduction)} — {deductionReason}. </span>
-            )}
-            {deduction > 0 && !deductionReason && (
-              <span>A deduction of {fmtUSD(deduction)} was applied this period. </span>
-            )}
-            {bonus > 0 && (
-              <span>A bonus of {fmtUSD(bonus)} was awarded this period. </span>
-            )}
-          </div>
-        )}
-
-        {/* Legal footer */}
-        <div style={{
-          borderTop: "1px solid #f1f5f9", paddingTop: 10,
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          fontSize: 9.5, color: "#cbd5e1",
-        }}>
-          <span>Generated: {new Date().toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" })}</span>
-          <span>This is a computer-generated payslip and requires no signature.</span>
-          <span>{COMPANY.name} · Confidential</span>
-        </div>
       </div>
     </div>
   );
 }
 
-// ── Main PayslipsPage ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// HTML string builder for PDF (mirrors PayslipDocument layout)
+// ─────────────────────────────────────────────────────────────────────────────
+function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits }) {
+  const deduction       = parseFloat(edits?.deduction)       || 0;
+  const bonus           = parseFloat(edits?.bonus)           || 0;
+  const deductionReason = edits?.deductionReason             || "";
+
+  const workingDays       = getWorkingDays(year, month);
+  const basicSalary       = parseFloat(payrollRecord?.basic_salary) || 0;
+  const allowances        = parseFloat(payrollRecord?.allowances)   || 0;
+  const dailyRate         = workingDays > 0 ? basicSalary / workingDays : 0;
+  const hourlyRate        = FULL_HOURS  > 0 ? dailyRate   / FULL_HOURS  : 0;
+
+  const empRecs = attAll
+    .filter(r => {
+      const eid = typeof r.employee === "object" ? r.employee.id : r.employee;
+      return eid === emp.id && isWorkingDay(r.date);
+    })
+    .sort((a,b) => a.date.localeCompare(b.date));
+
+  const presentRecs       = empRecs.filter(r => ["present","late","half_day"].includes(r.status));
+  const absentRecs        = empRecs.filter(r => r.status === "absent");
+  const daysAttended      = presentRecs.reduce((s,r) => s + (r.status==="half_day"?0.5:1), 0);
+  const daysAbsent        = absentRecs.length;
+  const totalHours        = presentRecs.reduce((s,r) => s + hoursForRecord(r), 0);
+  const lateRecs          = presentRecs.filter(r => r.status === "late");
+  const attendanceEarning = dailyRate * daysAttended;
+  const grossEarnings     = attendanceEarning + allowances + bonus;
+  const netPay            = Math.max(0, grossEarnings - deduction);
+
+  const fullName   = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
+  const jobTitle   = emp.job_title || emp.position || "—";
+  const department = emp.department_name || "—";
+  const empNo      = emp.employee_number || emp.employee_id || emp.emp_id || `JE-${String(emp.id).padStart(3,"0")}`;
+  const bankName   = payrollRecord?.bank_name   || emp.bank_name   || "—";
+  const bankAcct   = payrollRecord?.bank_account || emp.bank_account || "—";
+  const natId      = emp.national_id || emp.national_id_number || "";
+  const address    = emp.address || emp.home_address || "—";
+  const currency   = payrollRecord?.currency || "USD";
+  const joinDate   = emp.date_joined || emp.join_date || "";
+  const payPeriod  = monthLabel(year, month);
+  const today      = fmtDateLong(new Date().toISOString().slice(0,10));
+
+  const N = T.navy;
+  const labelSt = `background:#fff;color:${T.muted};padding:8px 4px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;width:28%;border-bottom:1px solid ${T.lineFaint};`;
+  const valueSt = `background:#fff;color:${T.ink};padding:8px 4px;font-size:12.5px;border-bottom:1px solid ${T.lineFaint};`;
+  const thSt    = `background:#fff;color:${N};padding:10px 4px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1.5px solid ${N};`;
+  const tdSt    = `padding:9px 4px;font-size:12.5px;color:${T.ink};border-bottom:1px solid ${T.lineFaint};background:#fff;`;
+
+  const lateDetailHTML = lateRecs.length > 0 ? `
+    <div style="margin-top:18px">
+      <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:${T.amber};margin-bottom:8px">Late Arrival Details</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${lateRecs.map(r=>`<div style="font-size:11px;background:#fff;border:1px solid ${T.amberBorder};border-radius:4px;padding:3px 10px;color:${T.amber};font-weight:600">${fmtDate(r.date)}${r.arrival_time?` · in ${r.arrival_time.slice(0,5)}`:""} · ${fmtHours(hoursForRecord(r))} worked</div>`).join("")}
+      </div>
+    </div>` : "";
+
+  return `
+<div class="payslip-wrapper" style="position:relative;font-family:'DM Sans',Arial,sans-serif;background:#fff;overflow:hidden;border:1px solid ${T.line};max-width:794px;margin:0 auto;padding:44px 48px;box-sizing:border-box">
+  <img src="${COMPANY.logo}" alt="" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:380px;height:380px;object-fit:contain;opacity:0.06;pointer-events:none;z-index:0" onerror="this.style.display='none'" />
+  <div style="position:relative;z-index:1">
+  <!-- HEADER -->
+  <div style="padding-bottom:18px;border-bottom:2px solid ${N};margin-bottom:22px;display:flex;align-items:center;justify-content:space-between;gap:18px">
+    <div style="display:flex;align-items:center;gap:16px">
+      <div style="width:62px;height:62px;flex-shrink:0;display:flex;align-items:center;justify-content:center">
+        <img src="${COMPANY.logo}" alt="${COMPANY.name}" style="width:100%;height:100%;object-fit:contain"
+          onerror="this.style.display='none';this.parentElement.innerHTML='<div style=width:62px;height:62px;border:1.5px solid ${N};border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:${N}>J</div>'" />
+      </div>
+      <div>
+        <div style="font-size:18px;font-weight:800;color:${N};letter-spacing:.01em;line-height:1.15">${COMPANY.name}</div>
+        <div style="font-size:11.5px;color:${T.muted};font-style:italic;margin-top:2px">${COMPANY.tagline}</div>
+        <div style="font-size:10.5px;color:${T.faint};margin-top:4px;line-height:1.6">${COMPANY.address} &nbsp;·&nbsp; ${COMPANY.phone} &nbsp;·&nbsp; ${COMPANY.email}</div>
+      </div>
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <div style="font-size:14px;font-weight:800;color:${N};letter-spacing:.14em;text-transform:uppercase">Payslip</div>
+      <div style="font-size:12px;font-weight:600;color:${T.muted};margin-top:3px">${payPeriod}</div>
+    </div>
+  </div>
+  <!-- EMPLOYEE DETAILS -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+    <tbody>
+      <tr>
+        <td style="${labelSt}">Employee Name</td><td style="${valueSt}font-weight:700;font-size:13px">${fullName}</td>
+        <td style="${labelSt}">Pay Period</td><td style="${valueSt}font-weight:600">${payPeriod}</td>
+      </tr>
+      <tr>
+        <td style="${labelSt}">Employee No.</td><td style="${valueSt}">${empNo}</td>
+        <td style="${labelSt}">Department</td><td style="${valueSt}">${department}</td>
+      </tr>
+      ${natId ? `<tr>
+        <td style="${labelSt}">National ID</td><td style="${valueSt}">${natId}</td>
+        <td style="${labelSt}">Position</td><td style="${valueSt}">${jobTitle}</td>
+      </tr>` : `<tr>
+        <td style="${labelSt}">Position</td><td style="${valueSt}">${jobTitle}</td>
+        <td style="${labelSt}">Date Joined</td><td style="${valueSt}">${joinDate ? fmtDate(joinDate) : "—"}</td>
+      </tr>`}
+      <tr>
+        <td style="${labelSt}">Address</td><td style="${valueSt}">${address}</td>
+        <td style="${labelSt}">Payment Method</td><td style="${valueSt}">${bankName !== "—" ? `Bank Transfer — ${bankName}` : "Cash / Bank Transfer"}</td>
+      </tr>
+      ${bankAcct !== "—" ? `<tr>
+        <td style="${labelSt}">Bank Account</td><td style="${valueSt}font-family:monospace;letter-spacing:.04em">${bankAcct}</td>
+        <td style="${labelSt}">Attendance</td><td style="${valueSt}">${daysAttended} / ${workingDays} days${daysAbsent > 0 ? ` <span style="margin-left:8px;color:${T.red};font-size:11px">(${daysAbsent} absent)</span>` : ""}</td>
+      </tr>` : ""}
+    </tbody>
+  </table>
+  <!-- EARNINGS / DEDUCTIONS TABLE -->
+  <table style="width:100%;border-collapse:collapse">
+    <thead>
+      <tr>
+        <th style="${thSt}width:50%">Description</th>
+        <th style="${thSt}text-align:right">Earnings (${currency})</th>
+        <th style="${thSt}text-align:right">Deductions (${currency})</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="${tdSt}">Basic Salary (Monthly)</td>
+        <td style="${tdSt}text-align:right;font-family:monospace">${fmtUSD(basicSalary)}</td>
+        <td style="${tdSt}text-align:right">—</td>
+      </tr>
+      <tr>
+        <td style="${tdSt}">Attendance Earnings <span style="margin-left:8px;font-size:11px;color:${T.faint}">(${daysAttended} of ${workingDays} days × ${fmtUSD(dailyRate)}/day)</span></td>
+        <td style="${tdSt}text-align:right;font-family:monospace">${fmtUSD(attendanceEarning)}</td>
+        <td style="${tdSt}text-align:right">—</td>
+      </tr>
+      <tr>
+        <td style="${tdSt}">Total Hours Worked <span style="margin-left:8px;font-size:11px;color:${T.faint}">(${fmtUSD(hourlyRate)}/hr)</span></td>
+        <td style="${tdSt}text-align:right;color:${T.muted}">${fmtHours(totalHours)}</td>
+        <td style="${tdSt}text-align:right">—</td>
+      </tr>
+      ${allowances > 0 ? `<tr>
+        <td style="${tdSt}">Allowances</td>
+        <td style="${tdSt}text-align:right;font-family:monospace">${fmtUSD(allowances)}</td>
+        <td style="${tdSt}text-align:right">—</td>
+      </tr>` : ""}
+      ${bonus > 0 ? `<tr>
+        <td style="${tdSt}color:${T.green}">Bonus</td>
+        <td style="${tdSt}text-align:right;font-family:monospace;font-weight:700;color:${T.green}">${fmtUSD(bonus)}</td>
+        <td style="${tdSt}text-align:right">—</td>
+      </tr>` : ""}
+      ${lateRecs.length > 0 ? `<tr>
+        <td style="${tdSt}color:${T.amber}">Late Arrivals (${lateRecs.length} day${lateRecs.length>1?"s":""}) — hours reduced accordingly</td>
+        <td style="${tdSt}text-align:right;color:${T.amber}">—</td>
+        <td style="${tdSt}text-align:right;color:${T.amber}">Note</td>
+      </tr>` : ""}
+      ${deduction > 0 ? `<tr>
+        <td style="${tdSt}color:${T.red}">Deduction${deductionReason ? ` — ${deductionReason}` : ""}</td>
+        <td style="${tdSt}text-align:right">—</td>
+        <td style="${tdSt}text-align:right;font-family:monospace;font-weight:700;color:${T.red}">${fmtUSD(deduction)}</td>
+      </tr>` : `<tr>
+        <td style="${tdSt}color:${T.faint};font-style:italic">No deductions this period</td>
+        <td style="${tdSt}text-align:right">—</td>
+        <td style="${tdSt}text-align:right;color:${T.faint}">—</td>
+      </tr>`}
+    </tbody>
+    <tfoot>
+      <tr style="border-top:1.5px solid ${N}">
+        <td style="padding:12px 4px;font-weight:800;font-size:12.5px;color:${N};text-transform:uppercase;letter-spacing:.04em">Gross Earnings</td>
+        <td style="padding:12px 4px;font-weight:800;font-size:13.5px;color:${N};text-align:right;font-family:monospace">${fmtUSD(grossEarnings)}</td>
+        <td style="padding:12px 4px;font-weight:800;font-size:12.5px;color:${deduction > 0 ? T.red : T.faint};text-align:right;font-family:monospace">${deduction > 0 ? fmtUSD(deduction) : "—"}</td>
+      </tr>
+    </tfoot>
+  </table>
+  <!-- NET PAY BAND -->
+  <div style="margin-top:18px;padding:16px 0;display:flex;align-items:center;justify-content:space-between;border-top:2px solid ${N};border-bottom:2px solid ${N}">
+    <div style="font-size:13.5px;font-weight:700;color:${N};text-transform:uppercase;letter-spacing:.1em">Net Pay (Take Home)</div>
+    <div style="font-size:24px;font-weight:800;color:${N};letter-spacing:.01em">${fmtUSD(netPay)} ${currency}</div>
+  </div>
+  ${lateDetailHTML}
+  <!-- AUTHORISED BY -->
+  <div style="margin-top:36px">
+    <div style="font-size:12px;font-weight:700;color:${T.ink};margin-bottom:28px">Authorised By:</div>
+    <div style="border-top:1px solid ${T.ink};width:300px;padding-top:6px">
+      <div style="font-size:12.5px;font-weight:600;color:${N}">${COMPANY.hrManager}</div>
+      <div style="font-size:11px;color:${T.muted};margin-top:2px">— ${COMPANY.hrTitle}</div>
+    </div>
+    <div style="margin-top:28px;padding-top:14px;border-top:1px solid ${T.lineFaint};font-size:10px;color:${T.faint};font-style:italic;text-align:center">
+      This payslip is computer generated and is valid without a signature. &nbsp;·&nbsp; Generated: ${today} &nbsp;·&nbsp; ${COMPANY.name} — Confidential
+    </div>
+  </div>
+  </div>
+</div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main PayslipsPage
+// ─────────────────────────────────────────────────────────────────────────────
 export default function HRPayslipsPage({ showToast }) {
   const { employees: ctxEmployees, departments: ctxDepartments, loading: ctxLoading } = useHRPortal();
 
   const now = new Date();
-  const [viewYear,    setViewYear]    = useState(now.getFullYear());
-  const [viewMonth,   setViewMonth]   = useState(now.getMonth());
-  const [search,      setSearch]      = useState("");
-  const [payrolls,    setPayrolls]    = useState([]);
-  const [attAll,      setAttAll]      = useState([]);
-  const [dataLoading, setDataLoading] = useState(true);
+  const [viewYear,     setViewYear]     = useState(now.getFullYear());
+  const [viewMonth,    setViewMonth]    = useState(now.getMonth());
+  const [search,       setSearch]       = useState("");
+  const [payrolls,     setPayrolls]     = useState([]);
+  const [attAll,       setAttAll]       = useState([]);
+  const [dataLoading,  setDataLoading]  = useState(true);
   const [payrollEdits, setPayrollEdits] = useState({});
   const [generating,   setGenerating]   = useState(false);
 
@@ -538,11 +817,9 @@ export default function HRPayslipsPage({ showToast }) {
   const lastDay    = new Date(viewYear, viewMonth+1, 0).getDate();
   const monthEnd   = `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
 
-  // Load payroll + attendance for the selected month
   useEffect(() => {
     let cancelled = false;
-    setDataLoading(true);
-    setAttAll([]);
+    setDataLoading(true); setAttAll([]);
     const run = async () => {
       try {
         const [prRes, attRes] = await Promise.all([
@@ -567,7 +844,6 @@ export default function HRPayslipsPage({ showToast }) {
     return () => { cancelled = true; };
   }, [monthStart, monthEnd]);
 
-  // Load localStorage edits whenever employees or month changes
   useEffect(() => {
     if (!ctxEmployees) return;
     const e = {};
@@ -593,18 +869,12 @@ export default function HRPayslipsPage({ showToast }) {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-  
-    // Last day of the viewed month at midnight
     const viewedMonthEnd = new Date(viewYear, viewMonth + 1, 0);
-  
     return employees.filter(emp => {
-      // Parse date_joined by splitting the string to avoid UTC timezone shifting
       if (emp.date_joined) {
         const [jY, jM, jD] = emp.date_joined.split("-").map(Number);
-        const joinDate = new Date(jY, jM - 1, jD); // local midnight
-        if (joinDate > viewedMonthEnd) return false;
+        if (new Date(jY, jM - 1, jD) > viewedMonthEnd) return false;
       }
-  
       const name  = (emp.full_name || [emp.first_name, emp.last_name].filter(Boolean).join(" ")).toLowerCase();
       const dept  = (emp.department_name || "").toLowerCase();
       const title = (emp.job_title || emp.position || "").toLowerCase();
@@ -617,199 +887,52 @@ export default function HRPayslipsPage({ showToast }) {
     else setViewMonth(m => m-1);
   };
   const nextMonth = () => {
-    if (viewMonth === 11) { setViewYear(y => y+1); setViewMonth(0); }
-    else setViewMonth(m => m+1);
+    const nm = viewMonth === 11 ? 0 : viewMonth + 1;
+    const ny = viewMonth === 11 ? viewYear + 1 : viewYear;
+    if (ny > now.getFullYear() || (ny === now.getFullYear() && nm > now.getMonth())) return;
+    setViewYear(ny); setViewMonth(nm);
   };
   const isCurrentMonth = viewYear === now.getFullYear() && viewMonth === now.getMonth();
 
-  // Build the raw HTML string for one employee's payslip (used by PDF generator)
-  const buildPayslipHTML = useCallback((emp) => {
-    const payRec          = payrollMap[emp.id];
-    const edits           = payrollEdits[emp.id] || {};
-    const deduction       = parseFloat(edits.deduction) || 0;
-    const bonus           = parseFloat(edits.bonus) || 0;
-    const deductionReason = edits.deductionReason || "";
-
-    const workingDays   = getWorkingDays(viewYear, viewMonth);
-    const basicSalary   = parseFloat(payRec?.basic_salary) || 0;
-    const allowances    = parseFloat(payRec?.allowances)   || 0;
-    const dailyRate     = workingDays > 0 ? basicSalary / workingDays : 0;
-    const hourlyRate    = FULL_HOURS  > 0 ? dailyRate / FULL_HOURS   : 0;
-
-    const empRecs = attAll
-      .filter(r => {
-        const eid = typeof r.employee === "object" ? r.employee.id : r.employee;
-        return eid === emp.id && isWorkingDay(r.date);
-      })
-      .sort((a,b) => a.date.localeCompare(b.date));
-
-    const presentRecs   = empRecs.filter(r => ["present","late","half_day"].includes(r.status));
-    const daysAttended  = presentRecs.reduce((s,r) => s + (r.status==="half_day"?0.5:1), 0);
-    const totalHours    = presentRecs.reduce((s,r) => s + hoursForRecord(r), 0);
-    const lateRecs      = presentRecs.filter(r => r.status === "late");
-    const grossEarnings = dailyRate * daysAttended + allowances;
-    const netPay        = Math.max(0, grossEarnings - deduction + bonus);
-
-    const fullName   = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
-    const jobTitle   = emp.job_title || emp.position || "—";
-    const department = emp.department_name || "—";
-    const empId      = emp.employee_id || emp.emp_id || `EMP${String(emp.id).padStart(4,"0")}`;
-    const bankName   = payRec?.bank_name || emp.bank_name || "—";
-    const bankAcct   = payRec?.bank_account || emp.bank_account || "—";
-    const phone      = emp.phone_number || emp.phone || "—";
-    const email      = emp.email || "—";
-    const currency   = payRec?.currency || "USD";
-
-    const lateHTML = lateRecs.length > 0 ? `
-      <div style="background:#fff7ed;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-top:12px">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#92400e;margin-bottom:6px">Late Arrival Details</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">
-          ${lateRecs.map(r => `
-            <div style="font-size:11px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:3px 8px;color:#92400e;font-weight:600">
-              ${fmtDate(r.date)}${r.arrival_time ? ` · ${r.arrival_time.slice(0,5)}` : ""} · ${fmtHours(hoursForRecord(r))} worked
-            </div>`).join("")}
-        </div>
-      </div>` : "";
-
-    const summaryHTML = (deduction > 0 || bonus > 0) ? `
-      <div style="background:#f8faff;border:1px solid #e0eaff;border-radius:10px;padding:10px 16px;font-size:11.5px;color:#475569;line-height:1.7;margin-top:12px">
-        <span style="font-weight:700;color:#0a2a5e">Summary: </span>
-        ${deduction > 0 && deductionReason ? `<span>You were deducted ${fmtUSD(deduction)} — ${deductionReason}. </span>` : ""}
-        ${deduction > 0 && !deductionReason ? `<span>A deduction of ${fmtUSD(deduction)} was applied this period. </span>` : ""}
-        ${bonus > 0 ? `<span>A bonus of ${fmtUSD(bonus)} was awarded this period. </span>` : ""}
-      </div>` : "";
-
-    return `
-<div class="payslip-wrapper" style="font-family:'DM Sans',sans-serif;background:#fff;overflow:hidden;border:1px solid #d1d5db">
-  <div style="background:linear-gradient(135deg,#0a2a5e,#1557b0 60%,#1a6fd4);padding:22px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px">
-    <div style="display:flex;align-items:center;gap:14px">
-      <div style="width:56px;height:56px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">
-        <img src="${COMPANY.logo}" alt="${COMPANY.name}" style="width:100%;height:100%;object-fit:contain"
-          onerror="this.style.display='none';this.parentElement.innerHTML='<span style=font-size:20px;font-weight:800;color:#0a2a5e>${COMPANY.name[0]}</span>'" />
-      </div>
-      <div>
-        <div style="font-size:20px;font-weight:800;color:#fff;font-family:'Playfair Display',serif">${COMPANY.name}</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:1px">${COMPANY.tagline}</div>
-        <div style="font-size:10.5px;color:rgba(255,255,255,.55);margin-top:4px;line-height:1.6">${COMPANY.address}<br>📞 ${COMPANY.phone} &nbsp;·&nbsp; ✉ ${COMPANY.email}</div>
-      </div>
-    </div>
-    <div style="text-align:center;flex-shrink:0">
-      <div style="font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.55);margin-bottom:4px">PAYSLIP</div>
-      <div style="font-size:16px;font-weight:700;color:#fff;background:rgba(255,255,255,.12);border-radius:8px;padding:4px 14px;border:1px solid rgba(255,255,255,.2)">${monthLabel(viewYear, viewMonth)}</div>
-    </div>
-    <div style="background:rgba(255,255,255,.08);border-radius:12px;border:1px solid rgba(255,255,255,.15);padding:12px 16px;min-width:200px">
-      <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:8px">${fullName}</div>
-      <table style="font-size:10.5px;color:rgba(255,255,255,.7);border-collapse:collapse">
-        <tr><td style="color:rgba(255,255,255,.45);font-weight:600;padding-right:8px;padding-bottom:2px">ID</td><td>${empId}</td></tr>
-        <tr><td style="color:rgba(255,255,255,.45);font-weight:600;padding-right:8px;padding-bottom:2px">Title</td><td>${jobTitle}</td></tr>
-        <tr><td style="color:rgba(255,255,255,.45);font-weight:600;padding-right:8px;padding-bottom:2px">Dept</td><td>${department}</td></tr>
-        <tr><td style="color:rgba(255,255,255,.45);font-weight:600;padding-right:8px;padding-bottom:2px">Phone</td><td>${phone}</td></tr>
-        <tr><td style="color:rgba(255,255,255,.45);font-weight:600;padding-right:8px;padding-bottom:2px">Email</td><td>${email}</td></tr>
-        <tr><td style="color:rgba(255,255,255,.45);font-weight:600;padding-right:8px;padding-bottom:2px">Bank</td><td>${bankName}</td></tr>
-        <tr><td style="color:rgba(255,255,255,.45);font-weight:600;padding-right:8px;padding-bottom:2px">Account</td><td>${bankAcct}</td></tr>
-      </table>
-    </div>
-  </div>
-  <div style="padding:20px 28px">
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-      ${[
-        ["Working Days",  workingDays],
-        ["Days Attended", daysAttended % 1 === 0 ? daysAttended : daysAttended.toFixed(1)],
-        ["Total Hours",   fmtHours(totalHours)],
-        ["Late Arrivals", lateRecs.length],
-      ].map(([l,v]) => `
-        <div style="background:#f8faff;border:1px solid #e8edf7;border-radius:10px;padding:10px 14px;text-align:center">
-          <div style="font-size:18px;font-weight:700;color:#0a2a5e;font-family:'Playfair Display',serif">${v}</div>
-          <div style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-top:2px">${l}</div>
-        </div>`).join("")}
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      <div>
-        <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#1557b0;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #e0eaff">Earnings</div>
-        <table style="width:100%;border-collapse:collapse">
-          <tr style="border-bottom:1px solid #f1f5f9"><td style="padding:6px 0;font-size:12px;color:#475569">Basic Salary (Monthly)</td><td style="padding:6px 0;font-size:12px;font-weight:600;color:#0f172a;text-align:right;font-family:monospace">${fmtUSD(basicSalary)}</td></tr>
-          <tr style="border-bottom:1px solid #f1f5f9"><td style="padding:6px 0;font-size:12px;color:#475569">Days Attended (${daysAttended} of ${workingDays})</td><td style="padding:6px 0;font-size:12px;font-weight:600;color:#0f172a;text-align:right;font-family:monospace">${fmtUSD(dailyRate * daysAttended)}</td></tr>
-          <tr style="border-bottom:1px solid #f1f5f9"><td style="padding:6px 0;font-size:12px;color:#475569">Hourly Rate</td><td style="padding:6px 0;font-size:12px;font-weight:600;color:#0f172a;text-align:right;font-family:monospace">${fmtUSD(hourlyRate)}/hr</td></tr>
-          <tr style="border-bottom:1px solid #f1f5f9"><td style="padding:6px 0;font-size:12px;color:#475569">Total Hours Worked</td><td style="padding:6px 0;font-size:12px;font-weight:600;color:#0f172a;text-align:right;font-family:monospace">${fmtHours(totalHours)}</td></tr>
-          ${allowances > 0 ? `<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:6px 0;font-size:12px;color:#475569">Allowances</td><td style="padding:6px 0;font-size:12px;font-weight:600;color:#0f172a;text-align:right;font-family:monospace">${fmtUSD(allowances)}</td></tr>` : ""}
-          ${bonus > 0 ? `<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:6px 0;font-size:12px;color:#475569">Bonus</td><td style="padding:6px 0;font-size:12px;font-weight:600;color:#059669;text-align:right;font-family:monospace">+${fmtUSD(bonus)}</td></tr>` : ""}
-        </table>
-        <div style="margin-top:8px;padding:8px 0;border-top:2px solid #0a2a5e;display:flex;justify-content:space-between">
-          <span style="font-size:12px;font-weight:700;color:#0a2a5e">Gross Earnings</span>
-          <span style="font-size:14px;font-weight:800;color:#0a2a5e;font-family:monospace">${fmtUSD(grossEarnings)}</span>
-        </div>
-      </div>
-      <div>
-        <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#dc2626;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #fee2e2">Deductions</div>
-        <table style="width:100%;border-collapse:collapse">
-          ${deduction > 0
-            ? `<tr><td style="padding:6px 0;font-size:12px;color:#475569">Deduction${deductionReason ? ` — ${deductionReason}` : ""}</td><td style="padding:6px 0;font-size:12px;font-weight:600;color:#dc2626;text-align:right;font-family:monospace">-${fmtUSD(deduction)}</td></tr>`
-            : `<tr><td colspan="2" style="padding:6px 0;font-size:12px;color:#cbd5e1;font-style:italic">No deductions this period</td></tr>`}
-        </table>
-        ${deduction > 0 ? `
-          <div style="margin-top:8px;padding:8px 0;border-top:2px solid #dc2626;display:flex;justify-content:space-between">
-            <span style="font-size:12px;font-weight:700;color:#dc2626">Total Deductions</span>
-            <span style="font-size:14px;font-weight:800;color:#dc2626;font-family:monospace">-${fmtUSD(deduction)}</span>
-          </div>` : ""}
-      </div>
-    </div>
-    ${lateHTML}
-    <div style="background:linear-gradient(135deg,#0a2a5e,#1557b0);border-radius:12px;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;margin-top:16px">
-      <div>
-        <div style="font-size:11px;color:rgba(255,255,255,.6);font-weight:600;text-transform:uppercase;letter-spacing:.1em">Net Pay (${currency})</div>
-        <div style="font-size:28px;font-weight:800;color:#fff;font-family:'Playfair Display',serif;margin-top:2px">${fmtUSD(netPay)}</div>
-      </div>
-      <div style="text-align:right;font-size:11px;color:rgba(255,255,255,.55);line-height:1.9">
-        <div>Gross: ${fmtUSD(grossEarnings)}</div>
-        ${deduction > 0 ? `<div>Deductions: -${fmtUSD(deduction)}</div>` : ""}
-        ${bonus > 0 ? `<div>Bonus: +${fmtUSD(bonus)}</div>` : ""}
-        <div style="font-weight:700;color:rgba(255,255,255,.85)">Period: ${monthLabel(viewYear, viewMonth)}</div>
-      </div>
-    </div>
-    ${summaryHTML}
-    <div style="border-top:1px solid #f1f5f9;padding-top:10px;margin-top:14px;display:flex;justify-content:space-between;font-size:9.5px;color:#cbd5e1">
-      <span>Generated: ${new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</span>
-      <span>This is a computer-generated payslip and requires no signature.</span>
-      <span>${COMPANY.name} · Confidential</span>
-    </div>
-  </div>
-</div>`;
+  const buildHTML = useCallback((emp) => {
+    return buildPayslipHTMLString({
+      emp,
+      year: viewYear,
+      month: viewMonth,
+      attAll,
+      payrollRecord: payrollMap[emp.id],
+      edits: payrollEdits[emp.id] || {},
+    });
   }, [payrollMap, payrollEdits, attAll, viewYear, viewMonth]);
 
-  // Download a single employee's payslip
   const handleDownloadOne = useCallback((emp) => {
     setGenerating(true);
     (async () => {
       try {
-        const name     = (emp.full_name || [emp.first_name, emp.last_name].filter(Boolean).join("_")).replace(/\s+/g, "_");
-        const monthStr = new Date(viewYear, viewMonth, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
-        await generateAndDownloadPDF(buildPayslipHTML(emp), `Payslip_${name}_${monthStr}.pdf`);
+        const name     = (emp.full_name || [emp.first_name, emp.last_name].filter(Boolean).join("_")).replace(/\s+/g,"_");
+        const monthStr = new Date(viewYear, viewMonth, 1).toLocaleString("en-US",{month:"long",year:"numeric"});
+        await generateAndDownloadPDF(buildHTML(emp), `Payslip_${name}_${monthStr}.pdf`);
       } catch(err) {
         console.error("PDF generation failed:", err);
         alert("PDF generation failed. Please try again.");
-      } finally {
-        setGenerating(false);
-      }
+      } finally { setGenerating(false); }
     })();
-  }, [buildPayslipHTML, viewYear, viewMonth]);
+  }, [buildHTML, viewYear, viewMonth]);
 
-  // Download all visible employees' payslips in one PDF
   const handleDownloadAll = useCallback(() => {
     if (filtered.length === 0) return;
     setGenerating(true);
     (async () => {
       try {
-        const html     = filtered.map(emp => buildPayslipHTML(emp)).join("\n");
-        const monthStr = new Date(viewYear, viewMonth, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+        const html     = filtered.map(emp => buildHTML(emp)).join("\n");
+        const monthStr = new Date(viewYear, viewMonth, 1).toLocaleString("en-US",{month:"long",year:"numeric"});
         await generateAndDownloadPDF(html, `Payslips_${monthStr}.pdf`);
       } catch(err) {
         console.error("PDF generation failed:", err);
         alert("PDF generation failed. Please try again.");
-      } finally {
-        setGenerating(false);
-      }
+      } finally { setGenerating(false); }
     })();
-  }, [filtered, buildPayslipHTML, viewYear, viewMonth]);
+  }, [filtered, buildHTML, viewYear, viewMonth]);
 
   const loading = ctxLoading?.employees || dataLoading || !ctxEmployees;
 
@@ -818,34 +941,43 @@ export default function HRPayslipsPage({ showToast }) {
       <style>{`
         @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
         @keyframes spin     { to   { transform:rotate(360deg); } }
+        .payslip-dl-btn:hover { border-color: ${T.navyMid} !important; color: ${T.navyMid} !important; background: ${T.navyBg} !important; }
       `}</style>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 20, animation: "fadeInUp .3s ease" }}>
 
         {/* ── Page Header ── */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          flexWrap: "wrap", gap: 12,
+          background: "#fff", borderRadius: 14, border: `1px solid ${T.line}`,
+          padding: "16px 22px", boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+        }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#0a2a5e", fontFamily: "'Playfair Display',serif" }}>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.navy, fontFamily: "'DM Sans',sans-serif" }}>
               Payslips
             </h1>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 3, fontFamily: "'DM Sans',sans-serif" }}>
+            <div style={{ fontSize: 12, color: T.faint, marginTop: 3, fontFamily: "'DM Sans',sans-serif" }}>
               {monthLabel(viewYear, viewMonth)} · {filtered.length} employee{filtered.length !== 1 ? "s" : ""}
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             {/* Month navigator */}
-            <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, padding: "4px 6px" }}>
-              <button onClick={prevMonth} style={{ background: "none", border: "none", cursor: "pointer", color: "#475569", padding: "4px 8px", borderRadius: 7 }}>
+            <div style={{ display: "flex", alignItems: "center", background: "#fff", border: `1.5px solid ${T.line}`, borderRadius: 10, padding: "3px 5px", gap: 2 }}>
+              <button onClick={prevMonth} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, padding: "5px 9px", borderRadius: 7, display: "flex" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
               </button>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#0a2a5e", fontFamily: "'DM Sans',sans-serif", minWidth: 120, textAlign: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: T.navy, fontFamily: "'DM Sans',sans-serif", minWidth: 128, textAlign: "center" }}>
                 {monthLabel(viewYear, viewMonth)}
+                {isCurrentMonth && (
+                  <span style={{ marginLeft: 6, background: "#dcfce7", color: "#166534", borderRadius: 20, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>Now</span>
+                )}
               </span>
               <button
                 onClick={nextMonth}
                 disabled={isCurrentMonth}
-                style={{ background: "none", border: "none", cursor: isCurrentMonth ? "not-allowed" : "pointer", color: isCurrentMonth ? "#cbd5e1" : "#475569", padding: "4px 8px", borderRadius: 7 }}
+                style={{ background: "none", border: "none", cursor: isCurrentMonth ? "not-allowed" : "pointer", color: isCurrentMonth ? T.line : T.muted, padding: "5px 9px", borderRadius: 7, display: "flex" }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
@@ -853,7 +985,7 @@ export default function HRPayslipsPage({ showToast }) {
 
             {/* Search */}
             <div style={{ position: "relative" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round"
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.faint} strokeWidth="2.2" strokeLinecap="round"
                 style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
@@ -862,11 +994,13 @@ export default function HRPayslipsPage({ showToast }) {
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search employees…"
                 style={{
-                  paddingLeft: 32, paddingRight: 12, paddingTop: 8, paddingBottom: 8,
-                  border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13,
-                  fontFamily: "'DM Sans',sans-serif", outline: "none", background: "#fff",
-                  color: "#0f172a", width: 200,
+                  paddingLeft: 30, paddingRight: 12, paddingTop: 8, paddingBottom: 8,
+                  border: `1.5px solid ${T.line}`, borderRadius: 9, fontSize: 13,
+                  fontFamily: "'DM Sans',sans-serif", outline: "none",
+                  background: "#fafbff", color: T.ink, width: 190,
                 }}
+                onFocus={e => { e.target.style.borderColor = T.navyMid; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
+                onBlur={e => { e.target.style.borderColor = T.line; e.target.style.boxShadow = "none"; }}
               />
             </div>
 
@@ -877,35 +1011,35 @@ export default function HRPayslipsPage({ showToast }) {
               style={{
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "9px 18px", borderRadius: 10,
-                background: "linear-gradient(135deg,#0a2a5e,#1557b0)",
+                background: `linear-gradient(135deg,${T.navy},${T.navyMid})`,
                 border: "none", color: "#fff", fontSize: 13, fontWeight: 700,
                 fontFamily: "'DM Sans',sans-serif",
                 cursor: loading || generating || filtered.length === 0 ? "not-allowed" : "pointer",
                 opacity: loading || generating || filtered.length === 0 ? 0.5 : 1,
-                transition: "opacity .15s",
+                boxShadow: "0 2px 8px rgba(10,42,94,0.2)",
               }}
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
-              Download All Payslips
+              {generating ? "Generating…" : `Download All (${filtered.length})`}
             </button>
           </div>
         </div>
 
-        {/* ── Loading state ── */}
+        {/* ── Loading ── */}
         {loading && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "60px 0", gap: 12, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif" }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1557b0" strokeWidth="2.5" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", padding:"60px 0", gap:12, color:T.faint, fontFamily:"'DM Sans',sans-serif" }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={T.navyMid} strokeWidth="2.5" strokeLinecap="round" style={{ animation:"spin 0.8s linear infinite" }}>
               <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
             </svg>
             Loading payslips…
           </div>
         )}
 
-        {/* ── Empty state ── */}
+        {/* ── Empty ── */}
         {!loading && filtered.length === 0 && (
-          <div style={{ textAlign: "center", padding: "60px 0", color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", fontSize: 14 }}>
+          <div style={{ textAlign:"center", padding:"60px 0", color:T.faint, fontFamily:"'DM Sans',sans-serif", fontSize:14 }}>
             No employees found{search ? ` matching "${search}"` : ""}.
           </div>
         )}
@@ -918,44 +1052,61 @@ export default function HRPayslipsPage({ showToast }) {
             const eid = typeof r.employee === "object" ? r.employee.id : r.employee;
             return eid === emp.id;
           });
+          const empName = emp.full_name || [emp.first_name, emp.last_name].filter(Boolean).join(" ") || "—";
 
           return (
-            <div key={emp.id} style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            <div key={emp.id} style={{ display:"flex", flexDirection:"column" }}>
               {/* Per-payslip toolbar */}
               <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "8px 16px", background: "#f8faff",
-                border: "1px solid #e2e8f0", borderRadius: "12px 12px 0 0",
-                borderBottom: "none",
+                display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"8px 14px",
+                background: `linear-gradient(90deg, ${T.navy} 0%, ${T.navyMid} 100%)`,
+                borderRadius: "12px 12px 0 0",
               }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#0a2a5e", fontFamily: "'DM Sans',sans-serif" }}>
-                  {emp.full_name || [emp.first_name, emp.last_name].filter(Boolean).join(" ") || "—"}
-                </span>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <div style={{
+                    width:28, height:28, borderRadius:7,
+                    background:"rgba(255,255,255,0.18)",
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:12, fontWeight:800, color:"#fff",
+                    fontFamily:"'DM Sans',sans-serif", flexShrink:0,
+                  }}>
+                    {empName.split(" ").map(n=>n[0]).slice(0,2).join("").toUpperCase()}
+                  </div>
+                  <span style={{ fontSize:13, fontWeight:600, color:"#fff", fontFamily:"'DM Sans',sans-serif" }}>
+                    {empName}
+                  </span>
+                  {payRec && (
+                    <span style={{ fontSize:11, color:"rgba(255,255,255,0.55)", fontFamily:"'DM Sans',sans-serif" }}>
+                      · {payRec.bank_name || ""}
+                    </span>
+                  )}
+                </div>
                 <button
+                  className="payslip-dl-btn"
                   onClick={() => handleDownloadOne(emp)}
                   disabled={generating}
                   style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "6px 14px", borderRadius: 8,
-                    border: "1.5px solid #e2e8f0", background: "#fff",
-                    fontSize: 12, fontWeight: 600, color: "#475569",
-                    fontFamily: "'DM Sans',sans-serif",
+                    display:"flex", alignItems:"center", gap:6,
+                    padding:"6px 14px", borderRadius:8,
+                    border:"1.5px solid rgba(255,255,255,0.35)",
+                    background:"rgba(255,255,255,0.1)",
+                    fontSize:12, fontWeight:600, color:"#fff",
+                    fontFamily:"'DM Sans',sans-serif",
                     cursor: generating ? "not-allowed" : "pointer",
                     opacity: generating ? 0.5 : 1,
-                    transition: "border-color .15s, color .15s",
+                    transition:"border-color .15s, color .15s, background .15s",
                   }}
-                  onMouseEnter={e => { if (!generating) { e.currentTarget.style.borderColor="#1557b0"; e.currentTarget.style.color="#1557b0"; }}}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor="#e2e8f0"; e.currentTarget.style.color="#475569"; }}
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                   </svg>
-                  Download Payslip
+                  Download PDF
                 </button>
               </div>
 
-              {/* The payslip itself */}
-              <Payslip
+              {/* Payslip document */}
+              <PayslipDocument
                 emp={emp}
                 year={viewYear}
                 month={viewMonth}
@@ -971,18 +1122,19 @@ export default function HRPayslipsPage({ showToast }) {
       {/* ── Generating overlay ── */}
       {generating && (
         <div style={{
-          position: "fixed", inset: 0, background: "rgba(10,42,94,0.55)",
-          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          zIndex: 9999, gap: 16,
+          position:"fixed", inset:0, background:"rgba(10,42,94,0.6)",
+          display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+          zIndex:9999, gap:14,
         }}>
-          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }}>
-            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-          </svg>
-          <div style={{ color: "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 600 }}>
-            Generating PDF…
-          </div>
-          <div style={{ color: "rgba(255,255,255,0.6)", fontFamily: "'DM Sans',sans-serif", fontSize: 12 }}>
-            Please wait while your payslip is being prepared.
+          <div style={{
+            background:"#fff", borderRadius:16, padding:"32px 40px",
+            textAlign:"center", boxShadow:"0 24px 64px rgba(0,0,0,0.2)",
+          }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={T.navyMid} strokeWidth="2.5" strokeLinecap="round" style={{ animation:"spin 0.8s linear infinite", marginBottom:12 }}>
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+            <div style={{ color:T.navy, fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:700 }}>Generating PDF…</div>
+            <div style={{ color:T.faint, fontFamily:"'DM Sans',sans-serif", fontSize:12, marginTop:6 }}>Please wait while your payslip is being prepared.</div>
           </div>
         </div>
       )}
