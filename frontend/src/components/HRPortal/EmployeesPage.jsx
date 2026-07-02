@@ -8,7 +8,7 @@
 //
 // ✅ Uses HRPortalContext for employees + departments (no duplicate DB calls)
 // ✅ Only fetches payroll + attendance independently (not in context)
-// ✅ Supports a second bank account on file per employee (reference only — no payment splitting)
+// ✅ Supports separate USD and ZiG bank accounts on file per employee
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { apiFetch, getToken, refreshToken, notifyModalOpen, notifyModalClose } from "../../utils/auth";
@@ -491,11 +491,12 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
     status:           employee?.status            || "employed",
     status_reason:    employee?.status_reason     || "",
     monthly_salary:   employee?.payroll?.basic_salary || employee?.basic_salary || "",
-    bank_name:        employee?.payroll?.bank_name    || "",
-    bank_account:     employee?.payroll?.bank_account || "",
-    // ── Second bank account on file — reference only, not used for pay splitting ──
-    bank_name_2:      employee?.payroll?.bank_name_2    || employee?.bank_name_2    || "",
-    bank_account_2:   employee?.payroll?.bank_account_2 || employee?.bank_account_2 || "",
+    // ── USD bank account on file ──
+    bank_name_usd:    employee?.payroll?.bank_name_usd    || employee?.payroll?.bank_name    || "",
+    bank_account_usd: employee?.payroll?.bank_account_usd || employee?.payroll?.bank_account || "",
+    // ── ZiG (ZWG) bank account on file — kept separately from the USD account ──
+    bank_name_zig:    employee?.payroll?.bank_name_zig    || "",
+    bank_account_zig: employee?.payroll?.bank_account_zig || "",
   });
 
   const set = key => val => setForm(f => ({ ...f, [key]: val }));
@@ -654,7 +655,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
     try {
       const fullPhone = dialCode + localNumber.replace(/\s/g, "");
       const fd = new FormData();
-      const skipKeys = new Set(["monthly_salary", "bank_name", "bank_account", "bank_name_2", "bank_account_2"]);
+      const skipKeys = new Set(["monthly_salary", "bank_name_usd", "bank_account_usd", "bank_name_zig", "bank_account_zig"]);
       Object.entries(form).forEach(([k, v]) => {
         if (skipKeys.has(k)) return;
         if (k === "phone_number") { fd.append("phone_number", fullPhone); return; }
@@ -697,14 +698,15 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
           employee: saved.id,
           basic_salary: parseFloat(form.monthly_salary),
           allowances: 0, deductions: 0,
-          bank_name:    form.bank_name    || "",
-          bank_account: form.bank_account || "",
-          // ── Second account on file — informational only ──
-          bank_name_2:    form.bank_name_2    || "",
-          bank_account_2: form.bank_account_2 || "",
+          // ── USD bank account on file ──
+          bank_name_usd:    form.bank_name_usd    || "",
+          bank_account_usd: form.bank_account_usd || "",
+          // ── ZiG (ZWG) bank account on file ──
+          bank_name_zig:    form.bank_name_zig    || "",
+          bank_account_zig: form.bank_account_zig || "",
           currency: "USD", updated_by: "HR",
         });
-        const prResPatch = await apiFetch(`${API}/payroll/${saved.id}/`, { method: "PATCH", body: prBody });
+        const prResPatch = await apiFetch(`${API}/payroll/employee/${saved.id}/`, { method: "PATCH", body: prBody });
         if (!prResPatch.ok) {
           await apiFetch(`${API}/payroll/`, { method: "POST", body: prBody });
         }
@@ -998,36 +1000,36 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
               🏦 Banking Details (Optional)
             </div>
 
-            {/* Primary account */}
+            {/* USD account */}
             <div style={{ fontSize: 10.5, fontWeight: 700, color: "#1557b0", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>
-              Account 1 (Primary)
+              USD Account
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
               <FField label="Bank Name">
-                <FInput value={form.bank_name} onChange={set("bank_name")} placeholder="e.g. CBZ Bank" />
+                <FInput value={form.bank_name_usd} onChange={set("bank_name_usd")} placeholder="e.g. CBZ Bank" />
               </FField>
               <FField label="Account Number">
-                <FInput value={form.bank_account} onChange={set("bank_account")} placeholder="e.g. 1234567890" />
+                <FInput value={form.bank_account_usd} onChange={set("bank_account_usd")} placeholder="e.g. 1234567890" />
               </FField>
             </div>
 
             {/* Divider */}
             <div style={{ height: 1, background: "#e2e8f0", margin: "4px 0 16px" }} />
 
-            {/* Second account — reference only */}
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: "#64748b", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>
-              Account 2 (Secondary — on file for reference)
+            {/* ZiG account */}
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "#1557b0", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>
+              ZiG Account
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
               <FField label="Bank Name">
-                <FInput value={form.bank_name_2} onChange={set("bank_name_2")} placeholder="e.g. Steward Bank" />
+                <FInput value={form.bank_name_zig} onChange={set("bank_name_zig")} placeholder="e.g. Steward Bank" />
               </FField>
               <FField label="Account Number">
-                <FInput value={form.bank_account_2} onChange={set("bank_account_2")} placeholder="e.g. 0987654321" />
+                <FInput value={form.bank_account_zig} onChange={set("bank_account_zig")} placeholder="e.g. 0987654321" />
               </FField>
             </div>
             <div style={{ fontSize: 11, color: "#94a3b8", marginTop: -4, fontFamily: "'DM Sans',sans-serif" }}>
-              This second account is kept on file for reference only — pay is calculated and disbursed as a single amount, not split between accounts.
+              Both accounts are optional — fill in either or both. Payroll uses whichever account matches the currency selected for a pay run.
             </div>
           </div>
         </div>

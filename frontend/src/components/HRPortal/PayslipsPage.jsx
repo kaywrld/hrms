@@ -276,11 +276,11 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
   const jobTitle   = emp.job_title || emp.position || "—";
   const department = emp.department_name || "—";
   const empNo      = emp.employee_number || emp.employee_id || emp.emp_id || `JE-${String(emp.id).padStart(3,"0")}`;
-  const bankName   = payrollRecord?.bank_name   || emp.bank_name   || "—";
-  const bankAcct   = payrollRecord?.bank_account || emp.bank_account || "—";
+  const currency   = payrollRecord?.currency || "USD";
+  const bankName   = currency === "ZIG" ? (payrollRecord?.bank_name_zig || emp.bank_name_zig || "—") : (payrollRecord?.bank_name_usd || emp.bank_name_usd || "—");
+  const bankAcct   = currency === "ZIG" ? (payrollRecord?.bank_account_zig || emp.bank_account_zig || "—") : (payrollRecord?.bank_account_usd || emp.bank_account_usd || "—");
   const natId      = emp.national_id || emp.national_id_number || "—";
   const address    = emp.address || emp.home_address || "—";
-  const currency   = payrollRecord?.currency || "USD";
   const joinDate   = emp.date_joined || emp.join_date || "";
   const payPeriod  = monthLabel(year, month);
   const today      = fmtDateLong(new Date().toISOString().slice(0,10));
@@ -645,11 +645,11 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
   const jobTitle   = emp.job_title || emp.position || "—";
   const department = emp.department_name || "—";
   const empNo      = emp.employee_number || emp.employee_id || emp.emp_id || `JE-${String(emp.id).padStart(3,"0")}`;
-  const bankName   = payrollRecord?.bank_name   || emp.bank_name   || "—";
-  const bankAcct   = payrollRecord?.bank_account || emp.bank_account || "—";
+  const currency   = payrollRecord?.currency || "USD";
+  const bankName   = currency === "ZIG" ? (payrollRecord?.bank_name_zig || emp.bank_name_zig || "—") : (payrollRecord?.bank_name_usd || emp.bank_name_usd || "—");
+  const bankAcct   = currency === "ZIG" ? (payrollRecord?.bank_account_zig || emp.bank_account_zig || "—") : (payrollRecord?.bank_account_usd || emp.bank_account_usd || "—");
   const natId      = emp.national_id || emp.national_id_number || "";
   const address    = emp.address || emp.home_address || "—";
-  const currency   = payrollRecord?.currency || "USD";
   const joinDate   = emp.date_joined || emp.join_date || "";
   const payPeriod  = monthLabel(year, month);
   const today      = fmtDateLong(new Date().toISOString().slice(0,10));
@@ -1078,7 +1078,7 @@ export default function HRPayslipsPage({ showToast }) {
                   </span>
                   {payRec && (
                     <span style={{ fontSize:11, color:"rgba(255,255,255,0.55)", fontFamily:"'DM Sans',sans-serif" }}>
-                      · {payRec.bank_name || ""}
+                      · {payRec.bank_name_usd || payRec.bank_name_zig || ""}
                     </span>
                   )}
                 </div>

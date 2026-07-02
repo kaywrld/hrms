@@ -539,7 +539,7 @@ function ZigRateModal({ currentRate, onClose, onSave }) {
 // ── Download helpers ──────────────────────────────────────────────────────────
 function downloadCSV(rows, filename, currency, zigRate) {
   const currLabel = currency === "ZIG" ? "ZiG" : "USD";
-  const headers = ["Full Name", "Job Title", "Department", "Bank Name", "Account Number", "Days Attended", "Working Days", `Base Salary (${currLabel})`, `Net Salary (${currLabel})`, `Deduction (${currLabel})`, `Bonus (${currLabel})`, `Final Pay (${currLabel})`];
+  const headers = ["Full Name", "Job Title", "Department", `Bank Name (${currLabel} Account)`, `Account Number (${currLabel} Account)`, "Days Attended", "Working Days", `Base Salary (${currLabel})`, `Net Salary (${currLabel})`, `Deduction (${currLabel})`, `Bonus (${currLabel})`, `Final Pay (${currLabel})`];
   const lines = [headers.join(","), ...rows.map(r =>
     [
       `"${r.fullName}"`,
@@ -565,6 +565,7 @@ function downloadCSV(rows, filename, currency, zigRate) {
 
 function downloadPDF(rows, monthLabel, currency, zigRate) {
   const currSymbol = currency === "ZIG" ? "ZiG " : "$";
+  const currLabel  = currency === "ZIG" ? "ZiG" : "USD";
   const rate = parseFloat(zigRate) || 1;
   const conv = (v) => currency === "ZIG" ? v * rate : v;
   const fmtN = (v) => `${currSymbol}${conv(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -587,7 +588,7 @@ function downloadPDF(rows, monthLabel, currency, zigRate) {
       <table>
         <thead><tr>
           <th>Full Name</th><th>Job Title</th><th>Dept</th>
-          <th>Bank Name</th><th>Account No.</th>
+          <th>Bank Name (${currLabel} Account)</th><th>Account No. (${currLabel} Account)</th>
           <th>Attendance</th><th>Base Salary</th>
           <th class="money">Net Salary</th><th class="money">Deduction</th>
           <th class="money">Bonus</th><th class="money">Final Pay</th>
@@ -764,8 +765,12 @@ export default function HRPayrollPage({ showToast }) {
     return ctxEmployees.map(emp => {
       const payrollEntry  = payrollMap[emp.id] || {};
       const monthlySalary = parseFloat(payrollEntry.basic_salary) || 0; 
-      const bankName      = payrollEntry.bank_name || "—";              
-      const bankAccount   = payrollEntry.bank_account || "—";          
+      const bankName      = currency === "ZIG"
+        ? (payrollEntry.bank_name_zig    || "No ZiG bank on file")
+        : (payrollEntry.bank_name_usd    || "No USD bank on file");
+      const bankAccount   = currency === "ZIG"
+        ? (payrollEntry.bank_account_zig || "—")
+        : (payrollEntry.bank_account_usd || "—");
       const dailyRate     = workingDays > 0 ? monthlySalary / workingDays : 0;
       const daysAttended  = attendanceMap[emp.id] || 0;
       const netSalary     = dailyRate * daysAttended;
@@ -785,7 +790,7 @@ export default function HRPayrollPage({ showToast }) {
         bankName, bankAccount,
       };
     });
-  }, [ctxEmployees, payrollMap, attendanceMap, workingDays, departments, payrollEdits]);
+  }, [ctxEmployees, payrollMap, attendanceMap, workingDays, departments, payrollEdits, currency]);
 
   const filtered = useMemo(() => {
     return enriched.filter(e => {

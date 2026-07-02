@@ -886,15 +886,17 @@ function EmployeeDetailPanel({ emp, onClose }) {
           </div>
 
           {/* Bank / Payroll if available */}
-          {(emp.bank_name || emp.bank_account || emp.salary) && (
+          {(emp.bank_name_usd || emp.bank_account_usd || emp.bank_name_zig || emp.bank_account_zig || emp.salary) && (
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#0a2a5e",
                 letterSpacing: "1px", textTransform: "uppercase",
                 fontFamily: "'DM Sans',sans-serif", marginBottom: 4 }}>
                 Payroll
               </div>
-              {emp.bank_name    && <InfoRow label="Bank"    value={emp.bank_name} />}
-              {emp.bank_account && <InfoRow label="Account" value={emp.bank_account} />}
+              {emp.bank_name_usd    && <InfoRow label="USD Bank"    value={emp.bank_name_usd} />}
+              {emp.bank_account_usd && <InfoRow label="USD Account" value={emp.bank_account_usd} />}
+              {emp.bank_name_zig    && <InfoRow label="ZiG Bank"    value={emp.bank_name_zig} />}
+              {emp.bank_account_zig && <InfoRow label="ZiG Account" value={emp.bank_account_zig} />}
               {emp.salary       && <InfoRow label="Salary"  value={`$${Number(emp.salary).toLocaleString()}`} />}
             </div>
           )}
@@ -1184,7 +1186,7 @@ function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit }) {
       )}
 
       {/* Detail sections grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+      <div className="hr-charts-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
 
         {/* Personal Details */}
         <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0",
@@ -1266,8 +1268,10 @@ function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit }) {
                   textTransform: "uppercase", fontFamily: "'DM Sans',sans-serif", marginBottom: 10 }}>
                   🏦 Banking Details
                 </div>
-                <InfoRow label="Bank Name"      value={payroll.bank_name    || emp.bank_name || emp.bank} />
-                <InfoRow label="Account Number" value={payroll.bank_account || emp.bank_account || emp.account_number} />
+                <InfoRow label="USD Bank"        value={payroll.bank_name_usd    || emp.bank_name_usd} />
+                <InfoRow label="USD Account No." value={payroll.bank_account_usd || emp.bank_account_usd} />
+                <InfoRow label="ZiG Bank"        value={payroll.bank_name_zig    || emp.bank_name_zig} />
+                <InfoRow label="ZiG Account No." value={payroll.bank_account_zig || emp.bank_account_zig} />
                 <InfoRow label="Currency"       value={payroll.currency || "USD"} />
               </div>
               {/* Salary Details */}
@@ -1388,6 +1392,7 @@ function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit }) {
                       padding: "12px 16px",
                       background: "#fafbff", borderRadius: 10,
                       border: "1px solid #e2e8f0",
+                      flexWrap: "wrap",
                     }}>
                       {/* File icon */}
                       <div style={{
@@ -1498,9 +1503,11 @@ function EditEmployeeModal({ employee, departments, onClose, showToast, onSave }
   const [tab, setTab] = useState("banking"); // "banking" | "personal" | "employment"
 
   const [form, setForm] = useState({
-    // Banking (payroll)
-    bank_name:    employee?.payroll?.bank_name    || "",
-    bank_account: employee?.payroll?.bank_account || "",
+    // Banking (payroll) — separate USD and ZiG accounts
+    bank_name_usd:    employee?.payroll?.bank_name_usd    || employee?.payroll?.bank_name    || "",
+    bank_account_usd: employee?.payroll?.bank_account_usd || employee?.payroll?.bank_account || "",
+    bank_name_zig:    employee?.payroll?.bank_name_zig    || "",
+    bank_account_zig: employee?.payroll?.bank_account_zig || "",
     monthly_salary: employee?.payroll?.basic_salary || employee?.basic_salary || "",
     // Personal
     phone_number:  employee?.phone_number  || "",
@@ -1567,15 +1574,21 @@ function EditEmployeeModal({ employee, departments, onClose, showToast, onSave }
         employee: employee.id,
         basic_salary: parseFloat(form.monthly_salary) || 0,
         allowances: 0, deductions: 0,
-        bank_name:    form.bank_name    || "",
-        bank_account: form.bank_account || "",
+        bank_name_usd:    form.bank_name_usd    || "",
+        bank_account_usd: form.bank_account_usd || "",
+        bank_name_zig:    form.bank_name_zig    || "",
+        bank_account_zig: form.bank_account_zig || "",
         currency: "USD", updated_by: "HR",
       });
       const prPatch = await apiFetch(`${API}/payroll/employee/${employee.id}/`, { method: "PATCH", body: prBody });
       if (!prPatch.ok) {
         await apiFetch(`${API}/payroll/`, { method: "POST", body: prBody });
       }
-      const payrollData = { bank_name: form.bank_name, bank_account: form.bank_account, basic_salary: parseFloat(form.monthly_salary) || 0 };
+      const payrollData = {
+        bank_name_usd: form.bank_name_usd, bank_account_usd: form.bank_account_usd,
+        bank_name_zig: form.bank_name_zig, bank_account_zig: form.bank_account_zig,
+        basic_salary: parseFloat(form.monthly_salary) || 0,
+      };
 
       showToast("Employee updated successfully.");
       onSave({
@@ -1616,15 +1629,16 @@ function EditEmployeeModal({ employee, departments, onClose, showToast, onSave }
         </div>
 
         {/* Tab bar */}
-        <div style={{ display:"flex",borderBottom:"1.5px solid #e2e8f0",flexShrink:0 }}>
+        <div style={{ display:"flex",flexWrap:"wrap",borderBottom:"1.5px solid #e2e8f0",flexShrink:0 }}>
           {tabs.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
-              flex:1,padding:"10px 8px",border:"none",background:"none",
+              flex:"1 1 45%",padding:"10px 8px",border:"none",background:"none",
               fontSize:12.5,fontWeight:tab===t.key?700:500,
               color:tab===t.key?"#1557b0":"#64748b",
               borderBottom:tab===t.key?"2px solid #1557b0":"2px solid transparent",
               cursor:"pointer",fontFamily:"'DM Sans',sans-serif",
               marginBottom:-1.5,transition:"color 0.15s",
+              whiteSpace:"nowrap",
             }}>{t.label}</button>
           ))}
         </div>
@@ -1641,12 +1655,29 @@ function EditEmployeeModal({ employee, departments, onClose, showToast, onSave }
                   Used for payroll processing and salary disbursement.
                 </div>
               </div>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px" }}>
+              <div style={{ fontSize:10.5,fontWeight:700,color:"#1557b0",letterSpacing:"0.5px",textTransform:"uppercase",marginBottom:8,fontFamily:"'DM Sans',sans-serif" }}>
+                USD Account
+              </div>
+              <div className="hr-modal-2col" style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px" }}>
                 <Field label="Bank Name">
-                  <Input value={form.bank_name} onChange={set("bank_name")} placeholder="e.g. CBZ Bank" />
+                  <Input value={form.bank_name_usd} onChange={set("bank_name_usd")} placeholder="e.g. CBZ Bank" />
                 </Field>
                 <Field label="Account Number">
-                  <Input value={form.bank_account} onChange={set("bank_account")} placeholder="e.g. 1234567890" />
+                  <Input value={form.bank_account_usd} onChange={set("bank_account_usd")} placeholder="e.g. 1234567890" />
+                </Field>
+              </div>
+
+              <div style={{ height:1,background:"#e2e8f0",margin:"4px 0 16px" }} />
+
+              <div style={{ fontSize:10.5,fontWeight:700,color:"#1557b0",letterSpacing:"0.5px",textTransform:"uppercase",marginBottom:8,fontFamily:"'DM Sans',sans-serif" }}>
+                ZiG Account
+              </div>
+              <div className="hr-modal-2col" style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px" }}>
+                <Field label="Bank Name">
+                  <Input value={form.bank_name_zig} onChange={set("bank_name_zig")} placeholder="e.g. Steward Bank" />
+                </Field>
+                <Field label="Account Number">
+                  <Input value={form.bank_account_zig} onChange={set("bank_account_zig")} placeholder="e.g. 0987654321" />
                 </Field>
               </div>
               <Field label="Monthly Salary (USD)">
@@ -1707,7 +1738,7 @@ function EditEmployeeModal({ employee, departments, onClose, showToast, onSave }
                     { value:"other",    label:"Other"    },
                   ]} />
               </Field>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px" }}>
+              <div className="hr-modal-2col" style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px" }}>
                 <Field label="Phone Number">
                   <Input value={form.nok_phone} onChange={set("nok_phone")} placeholder="+263 77 123 4567" />
                 </Field>
@@ -1859,7 +1890,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
   const s = stats || {};
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24, paddingLeft: 24 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
 
       {/* Page header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
@@ -1882,7 +1913,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
       </div>
 
       {/* Stat cards row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+      <div className="hr-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
         <StatCard
           label="Total Workers"
           value={s.total ?? "–"}
@@ -1968,7 +1999,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
               padding: "9px 14px", border: "1.5px solid #e2e8f0",
               borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif",
               color: "#334155", background: "#fafbff", outline: "none",
-              cursor: "pointer", flex: "0 1 170px",
+              cursor: "pointer", flex: "1 1 140px", minWidth: 0,
             }}
           >
             <option value="all">All Departments</option>
@@ -1985,7 +2016,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
               padding: "9px 14px", border: "1.5px solid #e2e8f0",
               borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif",
               color: "#334155", background: "#fafbff", outline: "none",
-              cursor: "pointer", flex: "0 1 150px",
+              cursor: "pointer", flex: "1 1 120px", minWidth: 0,
             }}
           >
             <option value="all">All Types</option>
@@ -2014,13 +2045,13 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
         </div>
 
         {/* Table */}
-        <div style={{ overflowX: "auto" }}>
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
           <table style={{ width: "100%", borderCollapse: "collapse",
-            fontFamily: "'DM Sans',sans-serif", fontSize: 13 }}>
+            fontFamily: "'DM Sans',sans-serif", fontSize: 13, minWidth: 560 }}>
             <thead>
               <tr style={{ background: "#fafbff", borderBottom: "1.5px solid #e2e8f0" }}>
                 {["Employee", "Contact", "Gender", "Job Title", "Dept", "Type", "Status"].map((h) => (
-                  <th key={h} style={{
+                  <th key={h} className={(h === "Gender" || h === "Dept") ? "hr-table-th-hide" : undefined} style={{
                     padding: "10px 16px", textAlign: "left",
                     fontSize: 10.5, fontWeight: 700, color: "#64748b",
                     letterSpacing: "0.8px", textTransform: "uppercase",
@@ -2100,7 +2131,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
                       </td>
 
                       {/* Gender */}
-                      <td style={{ padding: "11px 16px", color: "#475569", fontSize: 12 }}>
+                      <td className="hr-table-td-hide" style={{ padding: "11px 16px", color: "#475569", fontSize: 12 }}>
                         {{ M: "Male", F: "Female", O: "Other" }[emp.gender] || emp.gender || "—"}
                       </td>
 
@@ -2110,7 +2141,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
                       </td>
 
                       {/* Department */}
-                      <td style={{ padding: "11px 16px", color: "#475569", fontSize: 12 }}>
+                      <td className="hr-table-td-hide" style={{ padding: "11px 16px", color: "#475569", fontSize: 12 }}>
                         {emp.department_name || "—"}
                       </td>
 
@@ -2148,7 +2179,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
       </Card>
 
       {/* Charts row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18 }}>
+      <div className="hr-charts-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18 }}>
 
         {/* Gender donut */}
         <Card title="Gender Breakdown">
@@ -2242,7 +2273,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
       </div>
 
       {/* Second charts row */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+      <div className="hr-charts-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
 
         <Card title="Employees by Department">
           {s.byDept && s.byDept.length > 0 ? (
@@ -2290,7 +2321,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
 function ProfilePage({ user, initials, isHRM, onEdit, onPassword }) {
   const roleBadge = isHRM ? "HR Manager" : "HR Officer";
   return (
-    <div style={{ paddingLeft: 24 }}>
+    <div>
       <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0",
         boxShadow: "0 1px 6px rgba(0,0,0,0.05)", padding: "28px 32px", marginBottom: 18, maxWidth: 680 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", marginBottom: 24 }}>
@@ -2300,7 +2331,7 @@ function ProfilePage({ user, initials, isHRM, onEdit, onPassword }) {
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 26, fontWeight: 700, color: "#fff", letterSpacing: 1,
           }}>{initials}</div>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 160 }}>
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, color: "#0f172a" }}>
               {user?.full_name || user?.username || "—"}
             </div>
@@ -2324,7 +2355,7 @@ function ProfilePage({ user, initials, isHRM, onEdit, onPassword }) {
             Edit Profile
           </button>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+        <div className="hr-charts-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
           {[
             ["Username",   user?.username || "—"],
             ["Email",      user?.email    || "—"],
@@ -2339,7 +2370,7 @@ function ProfilePage({ user, initials, isHRM, onEdit, onPassword }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 680 }}>
+      <div className="hr-charts-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 680 }}>
         <div
           onClick={onEdit}
           style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 20,
@@ -2386,14 +2417,14 @@ function Modal({ title, onClose, children, maxWidth = 480 }) {
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(10,30,80,0.5)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"fadeIn 0.18s ease" }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:"#fff",borderRadius:18,width:"100%",maxWidth,boxShadow:"0 24px 64px rgba(0,0,0,0.18)",animation:"slideUp 0.25s cubic-bezier(0.22,1,0.36,1) both",overflow:"hidden" }}>
-        <div style={{ background:"linear-gradient(135deg,#0a2a5e,#1557b0)",padding:"18px 22px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+      <div style={{ background:"#fff",borderRadius:18,width:"100%",maxWidth,boxShadow:"0 24px 64px rgba(0,0,0,0.18)",animation:"slideUp 0.25s cubic-bezier(0.22,1,0.36,1) both",overflow:"hidden",maxHeight:"90vh",display:"flex",flexDirection:"column" }}>
+        <div style={{ background:"linear-gradient(135deg,#0a2a5e,#1557b0)",padding:"18px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0 }}>
           <span style={{ fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:"#fff" }}>{title}</span>
           <button onClick={onClose} style={{ width:30,height:30,background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff",transition:"background 0.15s" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.25)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.15)"}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-        <div style={{ padding:24 }}>{children}</div>
+        <div style={{ padding:24, overflowY:"auto" }}>{children}</div>
       </div>
     </div>
   );
@@ -2447,7 +2478,7 @@ function EditProfileModal({ user, onClose, showToast }) {
           onFocus={e => { e.target.style.borderColor="#1557b0"; e.target.style.boxShadow="0 0 0 3px rgba(21,87,176,0.1)"; }}
           onBlur={e => { e.target.style.borderColor="#e2e8f0"; e.target.style.boxShadow="none"; }} />
       </div>
-      <div style={{ display:"flex",justifyContent:"flex-end",gap:10,marginTop:22 }}>
+      <div style={{ display:"flex",justifyContent:"flex-end",gap:10,marginTop:22,flexWrap:"wrap" }}>
         <button onClick={onClose} style={{ padding:"10px 22px",borderRadius:10,border:"1px solid #e2e8f0",background:"#f1f5f9",color:"#0f172a",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,cursor:"pointer" }}>Cancel</button>
         <button onClick={save} disabled={busy} style={{ padding:"10px 22px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0a2a5e,#1557b0)",color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,cursor:busy?"not-allowed":"pointer",opacity:busy?0.5:1 }}>{busy ? "Saving…" : "Save Changes"}</button>
       </div>
@@ -2515,7 +2546,7 @@ function ChangePasswordModal({ onClose, showToast, onSuccess }) {
       <PwField field="current_password"  label="Current Password"     sk="c"  form={form} setForm={setForm} show={show} setShow={setShow} />
       <PwField field="new_password"      label="New Password"         sk="n"  form={form} setForm={setForm} show={show} setShow={setShow} />
       <PwField field="confirm_password"  label="Confirm New Password" sk="cf" form={form} setForm={setForm} show={show} setShow={setShow} />
-      <div style={{ display:"flex",justifyContent:"flex-end",gap:10,marginTop:22 }}>
+      <div style={{ display:"flex",justifyContent:"flex-end",gap:10,marginTop:22,flexWrap:"wrap" }}>
         <button onClick={onClose} style={{ padding:"10px 22px",borderRadius:10,border:"1px solid #e2e8f0",background:"#f1f5f9",color:"#0f172a",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,cursor:"pointer" }}>Cancel</button>
         <button onClick={save} disabled={busy} style={{ padding:"10px 22px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0a2a5e,#1557b0)",color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,cursor:busy?"not-allowed":"pointer",opacity:busy?0.5:1 }}>{busy ? "Updating…" : "Update Password"}</button>
       </div>
@@ -2527,7 +2558,7 @@ function ChangePasswordModal({ onClose, showToast, onSuccess }) {
 function PlaceholderPage({ name, icon }) {
   return (
     <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center", paddingLeft: 24,
+      display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "center", height: 360,
       color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", gap: 16,
     }}>
@@ -2622,6 +2653,7 @@ function HRPortalInner() {
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes slideUp { from { opacity:0; transform: translateY(12px); } to { opacity:1; transform:none; } }
         @keyframes fadeDown { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:none; } }
+        @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
         @keyframes slideInRight { from { opacity:0; transform: translateX(40px); } to { opacity:1; transform:none; } }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -2648,13 +2680,19 @@ function HRPortalInner() {
           .hr-sidebar-mobile { transform: translateX(-100%) !important; width: 220px !important; }
           .hr-sidebar-mobile.open { transform: translateX(0) !important; }
           .hr-main-mobile { margin-left: 0 !important; }
-          .hr-page-pad { padding: 14px 14px 14px 0 !important; }
+          .hr-page-pad { padding: 14px !important; }
           .hr-topbar-pad { padding: 0 14px !important; }
         }
         @media (max-width: 600px) {
           .hr-stats-grid { grid-template-columns: 1fr !important; }
           .hr-table-th-hide { display: none !important; }
           .hr-table-td-hide { display: none !important; }
+        }
+        @media (max-width: 480px) {
+          .hr-modal-2col { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 420px) {
+          .hr-page-pad { padding: 10px !important; }
         }
       `}</style>
 
@@ -2728,21 +2766,23 @@ function HRPortalInner() {
 
             {/* Breadcrumb */}
             <div style={{ display: "flex", alignItems: "center", gap: 6,
-              fontSize: 13, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", flex: 1 }}>
-              <span style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: "#0a2a5e" }}>
+              fontSize: 13, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", flex: 1, minWidth: 0 }}>
+              <span style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: "#0a2a5e",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {NAV_ITEMS.find((n) => n.key === page)?.label || "Dashboard"}
               </span>
             </div>
 
             {/* Role chip + avatar */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+              <div className="hr-role-chip" style={{
                 fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
                 color: isHRM ? "#1557b0" : "#0891b2",
                 background: isHRM ? "#eff6ff" : "#f0f9ff",
                 border: `1px solid ${isHRM ? "#bfdbfe" : "#bae6fd"}`,
                 borderRadius: 20, padding: "4px 12px",
                 fontFamily: "'DM Sans',sans-serif",
+                whiteSpace: "nowrap",
               }}>
                 {isHRM ? "HR MANAGER" : "HR OFFICER"}
               </div>
@@ -2756,7 +2796,7 @@ function HRPortalInner() {
           {/* Scrollable content */}
           <main
             className="hr-page-pad"
-            style={{ flex: 1, padding: "24px 24px 28px 0" }}
+            style={{ flex: 1, padding: "24px" }}
           >
             {/* First-login password change banner */}
             {mustChangePw && (
@@ -2842,7 +2882,7 @@ function HRPortalInner() {
               <div style={{ fontSize: 13.5, color: "#64748b", lineHeight: 1.65, maxWidth: 340, margin: "0 auto 24px" }}>
                 For your account's security, please change your default password before continuing.
               </div>
-              <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
                 <button
                   onClick={() => setShowFirstLoginModal(false)}
                   style={{ padding: "10px 22px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#f1f5f9", color: "#0f172a", fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 500, cursor: "pointer" }}

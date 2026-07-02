@@ -438,11 +438,13 @@ function EmployeeDrawer({ emp, onClose }) {
             </>
           )}
 
-          {(emp.bank_name || emp.bank_account || emp.basic_salary) && (
+          {(emp.bank_name_usd || emp.bank_account_usd || emp.bank_name_zig || emp.bank_account_zig || emp.basic_salary) && (
             <>
               <Sec t="Payroll" />
-              {emp.bank_name    && <Row label="Bank"        value={emp.bank_name} />}
-              {emp.bank_account && <Row label="Account"     value={emp.bank_account} />}
+              {emp.bank_name_usd    && <Row label="USD Bank"    value={emp.bank_name_usd} />}
+              {emp.bank_account_usd && <Row label="USD Account" value={emp.bank_account_usd} />}
+              {emp.bank_name_zig    && <Row label="ZiG Bank"    value={emp.bank_name_zig} />}
+              {emp.bank_account_zig && <Row label="ZiG Account" value={emp.bank_account_zig} />}
               {emp.basic_salary && <Row label="Basic Salary" value={`$${Number(emp.basic_salary).toLocaleString("en-US", { minimumFractionDigits: 2 })}`} vc="#166534" />}
             </>
           )}
@@ -965,11 +967,13 @@ function Dashboard() {
             <InfoRow label="Employee No." value={selectedEmp.employee_number ? `#${selectedEmp.employee_number}` : null} />
           </Card>
 
-          {(selectedEmp.bank_name || selectedEmp.bank_account || selectedEmp.basic_salary) && (
+          {(selectedEmp.bank_name_usd || selectedEmp.bank_account_usd || selectedEmp.bank_name_zig || selectedEmp.bank_account_zig || selectedEmp.basic_salary) && (
             <Card>
               <SectionTitle>Payroll & Bank</SectionTitle>
-              {selectedEmp.bank_name    && <InfoRow label="Bank"         value={selectedEmp.bank_name} />}
-              {selectedEmp.bank_account && <InfoRow label="Account"      value={selectedEmp.bank_account} />}
+              {selectedEmp.bank_name_usd    && <InfoRow label="USD Bank"    value={selectedEmp.bank_name_usd} />}
+              {selectedEmp.bank_account_usd && <InfoRow label="USD Account" value={selectedEmp.bank_account_usd} />}
+              {selectedEmp.bank_name_zig    && <InfoRow label="ZiG Bank"    value={selectedEmp.bank_name_zig} />}
+              {selectedEmp.bank_account_zig && <InfoRow label="ZiG Account" value={selectedEmp.bank_account_zig} />}
               {selectedEmp.basic_salary && <InfoRow label="Basic Salary" value={`$${Number(selectedEmp.basic_salary).toLocaleString("en-US", { minimumFractionDigits: 2 })}`} vc="#166534" />}
             </Card>
           )}

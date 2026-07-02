@@ -557,9 +557,18 @@ function MarkRegisterPage({ showToast }) {
 
   const handleEmpLocationInput = (empId, val) => {
     setDraft(d => ({ ...d, [empId]: { ...(d[empId] || {}), work_location: val } }));
-    const sug = suggestLocations(val, locationRegistry);
+    const sug = suggestLocations(val, locationRegistry).slice(0, 12);
     setEmpLocSuggestions(s => ({ ...s, [empId]: sug }));
     setEmpLocDropOpen(o => ({ ...o, [empId]: sug.length > 0 && val.length > 0 }));
+  };
+  // Called on focus — shows the full known-sites list right away (filtered
+  // to whatever's already typed) so previously-used sites don't need to be
+  // retyped from scratch each time; only narrows as the admin keeps typing.
+  const openEmpLocationSuggestions = (empId) => {
+    const v = draft[empId]?.work_location || "";
+    const sug = (v ? suggestLocations(v, locationRegistry) : locationRegistry).slice(0, 12);
+    setEmpLocSuggestions(s => ({ ...s, [empId]: sug }));
+    setEmpLocDropOpen(o => ({ ...o, [empId]: sug.length > 0 }));
   };
   const handleEmpLocationBlur = (empId) => {
     setTimeout(() => {
@@ -890,7 +899,7 @@ function MarkRegisterPage({ showToast }) {
                             className="mra-loc-input"
                             value={draft[e.id]?.work_location || ""}
                             onChange={ev => handleEmpLocationInput(e.id, ev.target.value)}
-                            onFocus={() => { const v = draft[e.id]?.work_location || ""; if (v) setEmpLocDropOpen(o => ({ ...o, [e.id]: suggestLocations(v, locationRegistry).length > 0 })); }}
+                            onFocus={() => openEmpLocationSuggestions(e.id)}
                             onBlur={() => handleEmpLocationBlur(e.id)}
                             placeholder="e.g. Unki, Head Office…"
                             disabled={tableLocked}

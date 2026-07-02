@@ -2,6 +2,7 @@
 // Attendance page — daily register with date-filtered stats + inline employee history view
 
 import { useState, useEffect, useMemo } from "react";
+import ExcelJS from "exceljs";
 import { apiFetch } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
 
@@ -543,15 +544,17 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
                 </div>
               </ProfileCard>
 
-              {(detail.basic_salary || detail.bank_name) && (
+              {(detail.basic_salary || detail.bank_name_usd || detail.bank_name_zig) && (
                 <ProfileCard title="Payroll & Banking">
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px 24px" }}>
                     <InfoRow label="Basic Salary" value={detail.basic_salary ? `${detail.currency || "USD"} ${Number(detail.basic_salary).toLocaleString()}` : null} />
                     <InfoRow label="Allowances"   value={detail.allowances  ? `${detail.currency || "USD"} ${Number(detail.allowances).toLocaleString()}`  : null} />
                     <InfoRow label="Deductions"   value={detail.deductions  ? `${detail.currency || "USD"} ${Number(detail.deductions).toLocaleString()}`  : null} />
                     <InfoRow label="Net Salary"   value={detail.net_salary  ? `${detail.currency || "USD"} ${Number(detail.net_salary).toLocaleString()}`  : null} />
-                    <InfoRow label="Bank"         value={detail.bank_name} />
-                    <InfoRow label="Account No."  value={detail.bank_account} />
+                    <InfoRow label="USD Bank"        value={detail.bank_name_usd} />
+                    <InfoRow label="USD Account No." value={detail.bank_account_usd} />
+                    <InfoRow label="ZiG Bank"        value={detail.bank_name_zig} />
+                    <InfoRow label="ZiG Account No." value={detail.bank_account_zig} />
                   </div>
                 </ProfileCard>
               )}
@@ -574,6 +577,662 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
   );
 }
 
+// ── Monthly Register (Excel) ────────────────────────────────────────────────
+// Builds a "JUNE DAILY REGISTER" style workbook: employees grouped by the
+// actual work site (e.g. "Masons") they were marked at during the month —
+// not their department — one column per day (1 = present, 0 = not), and a
+// "Total days" column that sums the row via an Excel formula.
+const MONTH_NAMES = ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
+const PRESENT_STATUSES = new Set(["present", "late", "half_day"]);
+
+async function buildAndDownloadMonthlyRegister({ employees, records, year, month, showToast }) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  // recMap[employeeId][YYYY-MM-DD] = status
+  const recMap = {};
+  records.forEach(r => {
+    const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
+    if (!recMap[empId]) recMap[empId] = {};
+    recMap[empId][r.date] = r.status;
+  });
+
+  // Work out each employee's site for the month — the work_location they
+  // were marked at most often on their attendance records. Employees with
+  // no location on record for the month fall into "Unassigned".
+  const siteCounts = {};
+  records.forEach(r => {
+    const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
+    const loc = (r.work_location || "").trim();
+    if (!loc) return;
+    if (!siteCounts[empId]) siteCounts[empId] = {};
+    siteCounts[empId][loc] = (siteCounts[empId][loc] || 0) + 1;
+  });
+  const employeeSite = {};
+  employees.forEach(emp => {
+    const counts = siteCounts[emp.id];
+    if (!counts) { employeeSite[emp.id] = "Unassigned"; return; }
+    employeeSite[emp.id] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  });
+
+  // Group employees by site
+  const bySite = {};
+  employees.forEach(emp => {
+    const site = employeeSite[emp.id];
+    if (!bySite[site]) bySite[site] = [];
+    bySite[site].push(emp);
+  });
+  const siteNames = Object.keys(bySite).sort((a, b) =>
+    a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b));
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(`${MONTH_NAMES[month]} ${year}`.slice(0, 31));
+
+  const totalCols = 3 + daysInMonth + 1; // No. + Name + Position + days + Total days
+
+  // ── Title row ──
+  ws.mergeCells(1, 1, 1, totalCols);
+  const titleCell = ws.getCell(1, 1);
+  titleCell.value = `${MONTH_NAMES[month]} ${year} DAILY REGISTER [ALL SITES]`;
+  titleCell.font = { bold: true, size: 14, name: "Arial" };
+  titleCell.alignment = { horizontal: "center" };
+
+  // ── Header row ──
+  const headerRow = ws.getRow(2);
+  headerRow.getCell(1).value = "No.";
+  headerRow.getCell(2).value = "Employees Names";
+  headerRow.getCell(3).value = "Position";
+  for (let d = 1; d <= daysInMonth; d++) headerRow.getCell(3 + d).value = d;
+  headerRow.getCell(3 + daysInMonth + 1).value = "Total days";
+  headerRow.eachCell(cell => { cell.font = { bold: true, name: "Arial", size: 10 }; cell.alignment = { horizontal: "center" }; });
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(year, month, d).getDay();
+    if (dow === 0 || dow === 6) headerRow.getCell(3 + d).font = { bold: true, name: "Arial", size: 10, color: { argb: "FFFF0000" } };
+  }
+
+  // ── Column widths ──
+  ws.getColumn(1).width = 5;
+  ws.getColumn(2).width = 28;
+  ws.getColumn(3).width = 24;
+  for (let d = 1; d <= daysInMonth; d++) ws.getColumn(3 + d).width = 4;
+  ws.getColumn(3 + daysInMonth + 1).width = 12;
+
+  // ── Site groups + employee rows ──
+  let rowIdx = 3;
+  siteNames.forEach(site => {
+    const siteRow = ws.getRow(rowIdx);
+    siteRow.getCell(2).value = site;
+    siteRow.getCell(2).font = { bold: true, name: "Arial", size: 10.5 };
+    for (let c = 1; c <= totalCols; c++) {
+      siteRow.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF00" } };
+    }
+    rowIdx++;
+
+    bySite[site].forEach((emp, i) => {
+      const row = ws.getRow(rowIdx);
+      row.font = { name: "Arial", size: 10 };
+      const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
+      row.getCell(1).value = i + 1;
+      row.getCell(2).value = fullName;
+      row.getCell(3).value = emp.job_title || emp.position || "";
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        const status = recMap[emp.id]?.[dateStr];
+        row.getCell(3 + d).value = PRESENT_STATUSES.has(status) ? 1 : 0;
+        row.getCell(3 + d).alignment = { horizontal: "center" };
+      }
+      const totalCell = row.getCell(3 + daysInMonth + 1);
+      const startCol = ws.getColumn(4).letter, endCol = ws.getColumn(3 + daysInMonth).letter;
+      totalCell.value = { formula: `SUM(${startCol}${rowIdx}:${endCol}${rowIdx})` };
+      totalCell.font = { bold: true, name: "Arial", size: 10 };
+      rowIdx++;
+    });
+  });
+
+  ws.views = [{ state: "frozen", ySplit: 2 }];
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${MONTH_NAMES[month].toLowerCase()}_${year}_register.xlsx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast?.("Register downloaded.");
+}
+
+// ── Location helpers (mirrors DeptPortal's site picker) ────────────────────
+// resolveLocation: title-cases the input (the shared registry is the single
+// source of truth for known names, no client-side alias mapping needed).
+function resolveLocation(raw) {
+  if (!raw || !raw.trim()) return "";
+  return raw.trim().replace(/\b\w/g, c => c.toUpperCase());
+}
+function suggestLocations(raw, registry) {
+  if (!raw || raw.length < 1 || !registry) return [];
+  const lower = raw.toLowerCase();
+  return registry.filter(name => name.toLowerCase().includes(lower));
+}
+
+// ── Zimbabwe Public Holidays (same logic used on the Payroll page, so the
+// working-day count here always matches what Payroll shows) ────────────────
+const ZW_PUBLIC_HOLIDAYS_RECURRING = [
+  "01-01", "02-21", "04-18", "05-01", "05-25",
+  "08-11", "08-12", "12-22", "12-25", "12-26",
+];
+
+function getZwPublicHolidays(year, month) {
+  const holidays = new Set();
+  for (const mmdd of ZW_PUBLIC_HOLIDAYS_RECURRING) {
+    const [m, d] = mmdd.split("-").map(Number);
+    if (m - 1 === month) {
+      const dt = new Date(year, month, d);
+      const dow = dt.getDay();
+      if (dow !== 0 && dow !== 6) {
+        holidays.add(`${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+      }
+    }
+  }
+  // Easter calculation
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d2 = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d2 - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m2 = Math.floor((a + 11 * h + 22 * l) / 451);
+  const easterMonth = Math.floor((h + l - 7 * m2 + 114) / 31) - 1;
+  const easterDay = ((h + l - 7 * m2 + 114) % 31) + 1;
+  const goodFriday = new Date(year, easterMonth, easterDay - 2);
+  if (goodFriday.getMonth() === month) {
+    holidays.add(`${year}-${String(goodFriday.getMonth() + 1).padStart(2, "0")}-${String(goodFriday.getDate()).padStart(2, "0")}`);
+  }
+  const easterMonday = new Date(year, easterMonth, easterDay + 1);
+  if (easterMonday.getMonth() === month) {
+    holidays.add(`${year}-${String(easterMonday.getMonth() + 1).padStart(2, "0")}-${String(easterMonday.getDate()).padStart(2, "0")}`);
+  }
+  return holidays;
+}
+
+// ── Bulk "Mark Register" view ───────────────────────────────────────────────
+// Lets HR mark Present for any employee, across any department, for any
+// number of days at once — click cells to select, then Save Register.
+// Days already on record (any status) show as a read-only badge; only
+// unmarked days are selectable, since there's no delete/undo endpoint to
+// safely overwrite a status a HOD may have set for a reason.
+function RegisterMarkingView({ employees, departments, onBack, showToast }) {
+  const todayObj = new Date();
+  const todayStr = toYMD(todayObj);
+  const [year,  setYear]  = useState(todayObj.getFullYear());
+  const [month, setMonth] = useState(todayObj.getMonth()); // 0-indexed
+  const [deptFilter, setDeptFilter] = useState("all");
+  const [siteFilter, setSiteFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const [existing, setExisting] = useState({}); // { empId: { "YYYY-MM-DD": status } }
+  const [loading, setLoading]   = useState(true);
+  const [marks, setMarks]       = useState(() => new Set()); // "empId:YYYY-MM-DD" pending selections
+  const [saving, setSaving]     = useState(false);
+  const [saveProgress, setSaveProgress] = useState(null); // { done, total }
+
+  // ── Per-employee "site" for the month — shared registry + free typing ──
+  const [locationRegistry, setLocationRegistry] = useState([]);
+  const [siteDraft, setSiteDraft] = useState({});        // { empId: "Masons" }
+  const [siteSuggestions, setSiteSuggestions] = useState({});
+  const [siteDropOpen, setSiteDropOpen] = useState({});
+
+  useEffect(() => {
+    apiFetch(`${API}/attendance/locations/`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        const list = (Array.isArray(data) ? data : data.results || []).map(l => l.name);
+        setLocationRegistry(list);
+      })
+      .catch(() => {});
+  }, []);
+
+  const registerLocation = async (name) => {
+    if (!name?.trim()) return;
+    const trimmed = name.trim();
+    if (locationRegistry.some(l => l.toLowerCase() === trimmed.toLowerCase())) return;
+    setLocationRegistry(prev => [...prev, trimmed].sort((a, b) => a.localeCompare(b)));
+    try {
+      const res = await apiFetch(`${API}/attendance/locations/`, { method: "POST", body: JSON.stringify({ name: trimmed }) });
+      if (res.ok) {
+        const saved = await res.json();
+        setLocationRegistry(prev => {
+          const without = prev.filter(l => l.toLowerCase() !== saved.name.toLowerCase());
+          return [...without, saved.name].sort((a, b) => a.localeCompare(b));
+        });
+      }
+    } catch (_) { /* optimistic update stays */ }
+  };
+
+  const handleSiteInput = (empId, val) => {
+    setSiteDraft(d => ({ ...d, [empId]: val }));
+    const sug = suggestLocations(val, locationRegistry).slice(0, 12);
+    setSiteSuggestions(s => ({ ...s, [empId]: sug }));
+    setSiteDropOpen(o => ({ ...o, [empId]: sug.length > 0 && val.length > 0 }));
+  };
+  // Called on focus — shows the full known-sites list right away (filtered
+  // to whatever's already typed) so a previously-used site doesn't need to
+  // be retyped from scratch each time; only narrows as HR keeps typing.
+  const openSiteSuggestions = (empId) => {
+    const v = siteDraft[empId] || "";
+    const sug = (v ? suggestLocations(v, locationRegistry) : locationRegistry).slice(0, 12);
+    setSiteSuggestions(s => ({ ...s, [empId]: sug }));
+    setSiteDropOpen(o => ({ ...o, [empId]: sug.length > 0 }));
+  };
+  const handleSiteBlur = (empId) => {
+    setTimeout(() => {
+      setSiteDropOpen(o => ({ ...o, [empId]: false }));
+      setSiteDraft(d => {
+        const cur = d[empId] || "";
+        return cur.trim() ? { ...d, [empId]: resolveLocation(cur) } : d;
+      });
+    }, 160);
+  };
+  const pickSite = (empId, loc) => {
+    setSiteDraft(d => ({ ...d, [empId]: loc }));
+    setSiteDropOpen(o => ({ ...o, [empId]: false }));
+  };
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+  const monthEnd   = `${year}-${String(month + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+
+  // Fetch existing records for the whole month whenever it changes
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setMarks(new Set());
+    apiFetch(`${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&page_size=8000`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : data.results || [];
+        const map = {};
+        list.forEach(r => {
+          const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
+          if (!map[empId]) map[empId] = {};
+          map[empId][r.date] = r.status;
+        });
+        setExisting(map);
+
+        // Prefill each employee's site input with whatever work_location they
+        // were marked at most often this month, so HR only has to type when
+        // it's genuinely unset — never overwrites something already typed.
+        const siteCounts = {};
+        list.forEach(r => {
+          const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
+          const loc = (r.work_location || "").trim();
+          if (!loc) return;
+          if (!siteCounts[empId]) siteCounts[empId] = {};
+          siteCounts[empId][loc] = (siteCounts[empId][loc] || 0) + 1;
+        });
+        setSiteDraft(prev => {
+          const next = { ...prev };
+          Object.entries(siteCounts).forEach(([empId, counts]) => {
+            if (next[empId] !== undefined) return; // don't clobber a manual edit
+            next[empId] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+          });
+          return next;
+        });
+      })
+      .catch(() => showToast?.("Failed to load existing attendance.", "err"))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [monthStart, monthEnd]);
+
+  const activeEmployees = useMemo(() => (employees || []).filter(e => e.status === "employed"), [employees]);
+
+  const filtered = useMemo(() => activeEmployees.filter(emp => {
+    const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ");
+    const q = search.toLowerCase();
+    const matchSearch = !q || fullName.toLowerCase().includes(q) || (emp.job_title || "").toLowerCase().includes(q) || (emp.department_name || "").toLowerCase().includes(q);
+    const matchDept = deptFilter === "all" || String(emp.department) === deptFilter;
+    const empSite = resolveLocation(siteDraft[emp.id] || "");
+    const matchSite = siteFilter === "all" || (siteFilter === "unassigned" ? !empSite : empSite === siteFilter);
+    return matchSearch && matchDept && matchSite;
+  }), [activeEmployees, search, deptFilter, siteFilter, siteDraft]);
+
+  const dayList = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth]);
+
+  const dateStr = (d) => `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const isFutureDay = (d) => dateStr(d) > todayStr;
+  const holidays = useMemo(() => getZwPublicHolidays(year, month), [year, month]);
+  const isHoliday = (d) => holidays.has(dateStr(d));
+  const isWorkDay = (d) => {
+    const dow = new Date(year, month, d).getDay();
+    if (dow === 0 || dow === 6) return false;
+    return !isHoliday(d);
+  };
+  const cellKey = (empId, d) => `${empId}:${dateStr(d)}`;
+
+  const toggleCell = (empId, d) => {
+    if (isFutureDay(d) || existing[empId]?.[dateStr(d)]) return;
+    const key = cellKey(empId, d);
+    setMarks(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
+  // Clicking an employee's name auto-marks their working days (Mon–Fri,
+  // excluding ZW public holidays) for the month — weekends & holidays are
+  // left out and can still be ticked manually on their individual cells.
+  // Clicking the name again unmarks whichever of those working days are
+  // currently pending (not yet saved), toggling the whole row on/off.
+  const markWholeRow = (empId) => {
+    const workCells = dayList.filter(d => isWorkDay(d) && !isFutureDay(d) && !existing[empId]?.[dateStr(d)]);
+    if (workCells.length === 0) return;
+    const allSelected = workCells.every(d => marks.has(cellKey(empId, d)));
+    setMarks(prev => {
+      const next = new Set(prev);
+      workCells.forEach(d => {
+        const key = cellKey(empId, d);
+        allSelected ? next.delete(key) : next.add(key);
+      });
+      return next;
+    });
+  };
+
+  // Clicking a day-header column is an explicit, single-day choice — so it
+  // marks that day for everyone regardless of whether it's a weekend or
+  // holiday. Clicking the same header again unmarks whichever of those
+  // pending cells are currently selected, toggling the whole column on/off.
+  const markWholeColumn = (d) => {
+    if (isFutureDay(d)) return;
+    const colCells = filtered.filter(emp => !existing[emp.id]?.[dateStr(d)]);
+    if (colCells.length === 0) return;
+    const allSelected = colCells.every(emp => marks.has(cellKey(emp.id, d)));
+    setMarks(prev => {
+      const next = new Set(prev);
+      colCells.forEach(emp => {
+        const key = cellKey(emp.id, d);
+        allSelected ? next.delete(key) : next.add(key);
+      });
+      return next;
+    });
+  };
+
+  // Top toolbar "Mark All Working Days" — marks Mon–Fri, excluding ZW public
+  // holidays, for every visible employee at once (matches the working-day
+  // count shown on the Payroll page). Weekends and holidays are excluded
+  // here too; mark them manually via individual cells or a day-column
+  // header if genuinely worked. Clicking again unmarks everything it
+  // pending-marked, toggling the whole month on/off.
+  const markEverythingVisible = () => {
+    const allCells = [];
+    filtered.forEach(emp => dayList.forEach(d => {
+      if (isWorkDay(d) && !isFutureDay(d) && !existing[emp.id]?.[dateStr(d)]) allCells.push(cellKey(emp.id, d));
+    }));
+    if (allCells.length === 0) return;
+    const allSelected = allCells.every(key => marks.has(key));
+    setMarks(prev => {
+      const next = new Set(prev);
+      allCells.forEach(key => { allSelected ? next.delete(key) : next.add(key); });
+      return next;
+    });
+  };
+
+  const clearSelection = () => setMarks(new Set());
+
+  const handleSave = async () => {
+    if (marks.size === 0) return;
+    setSaving(true);
+    const items = Array.from(marks).map(key => {
+      const [empId, date] = key.split(":");
+      return { empId, date };
+    });
+    setSaveProgress({ done: 0, total: items.length });
+
+    // Persist any newly-typed sites to the shared registry first
+    const empIds = Array.from(new Set(items.map(i => i.empId)));
+    await Promise.all(empIds.map(empId => {
+      const loc = resolveLocation(siteDraft[empId] || "");
+      return loc ? registerLocation(loc) : Promise.resolve();
+    }));
+
+    let succeeded = 0, failed = 0;
+    const batchSize = 6;
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize);
+      const results = await Promise.all(batch.map(({ empId, date }) => {
+        const work_location = resolveLocation(siteDraft[empId] || "");
+        return apiFetch(`${API}/attendance/`, {
+          method: "POST",
+          body: JSON.stringify({ employee: Number(empId), date, status: "present", shift: null, notes: "", work_location }),
+        }).then(r => r.ok).catch(() => false);
+      }));
+      results.forEach(ok => ok ? succeeded++ : failed++);
+      setSaveProgress({ done: Math.min(i + batchSize, items.length), total: items.length });
+    }
+
+    // Refresh existing records so saved cells become read-only badges
+    try {
+      const res = await apiFetch(`${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&page_size=8000`);
+      const data = res.ok ? await res.json() : [];
+      const list = Array.isArray(data) ? data : data.results || [];
+      const map = {};
+      list.forEach(r => {
+        const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
+        if (!map[empId]) map[empId] = {};
+        map[empId][r.date] = r.status;
+      });
+      setExisting(map);
+    } catch (_) { /* non-fatal */ }
+
+    setMarks(new Set());
+    setSaving(false);
+    setSaveProgress(null);
+    showToast?.(failed === 0
+      ? `Marked ${succeeded} attendance record${succeeded === 1 ? "" : "s"} as Present.`
+      : `Saved ${succeeded}, ${failed} failed — they may already be marked.`,
+      failed === 0 ? undefined : "err");
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, animation: "fadeInUp 0.3s ease" }}>
+      {/* ── Header ── */}
+      <div className="reg-header" style={{
+        background: "linear-gradient(135deg,#0a2a5e,#1557b0)",
+        borderRadius: 16, padding: "18px 22px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <button onClick={onBack}
+            style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 9, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.25)", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}
+            onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.25)"}
+            onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.15)"}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to Register
+          </button>
+          <div>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 18, fontWeight: 700, color: "#fff" }}>Mark Register</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", fontFamily: "'DM Sans',sans-serif", marginTop: 2 }}>
+              Click a name or day to mark/unmark working days (weekends & ZW holidays excluded), then save
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <select value={month} onChange={e => setMonth(Number(e.target.value))}
+            style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.12)", color: "#fff", fontSize: 12.5, fontFamily: "'DM Sans',sans-serif", outline: "none", cursor: "pointer" }}>
+            {MONTH_NAMES.map((m, i) => <option key={m} value={i} style={{ color: "#0a2a5e" }}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
+          </select>
+          <select value={year} onChange={e => setYear(Number(e.target.value))}
+            style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.12)", color: "#fff", fontSize: 12.5, fontFamily: "'DM Sans',sans-serif", outline: "none", cursor: "pointer" }}>
+            {Array.from({ length: 6 }, (_, i) => todayObj.getFullYear() - i).map(y => <option key={y} value={y} style={{ color: "#0a2a5e" }}>{y}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* ── Toolbar ── */}
+      <div className="reg-toolbar" style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", padding: "14px 18px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ position: "relative", flex: "1 1 220px" }}>
+          <input type="text" placeholder="Search name, job title or department…"
+            value={search} onChange={e => setSearch(e.target.value)}
+            style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", outline: "none", background: "#fafbff" }}
+          />
+        </div>
+        <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)}
+          style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer" }}>
+          <option value="all">All Departments</option>
+          {(departments || []).map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
+        </select>
+        <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}
+          title="Filter to employees currently assigned to a site — sites come from the shared registry built up as registers are marked"
+          style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer" }}>
+          <option value="all">All Sites</option>
+          {locationRegistry.map(site => <option key={site} value={site}>{site}</option>)}
+          <option value="unassigned">Unassigned</option>
+        </select>
+        <button onClick={markEverythingVisible} disabled={loading} title="Marks working days (Mon–Fri, excl. ZW public holidays) for everyone visible below — click again to unmark"
+          className="reg-btn"
+          style={{ padding: "9px 14px", borderRadius: 9, border: "1.5px solid #1557b0", background: "#fff", color: "#1557b0", fontSize: 12.5, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: loading ? "not-allowed" : "pointer" }}>
+          Mark All Working Days
+        </button>
+        {marks.size > 0 && (
+          <button onClick={clearSelection}
+            className="reg-btn"
+            style={{ padding: "9px 14px", borderRadius: 9, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontSize: 12.5, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
+            Clear ({marks.size})
+          </button>
+        )}
+        <div className="reg-toolbar-spacer" style={{ flex: 1 }} />
+        <button onClick={handleSave} disabled={marks.size === 0 || saving}
+          className="reg-btn"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "9px 18px", borderRadius: 9,
+            background: "linear-gradient(135deg,#0a2a5e,#1557b0)", border: "none", color: "#fff",
+            fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif",
+            cursor: marks.size === 0 || saving ? "not-allowed" : "pointer",
+            opacity: marks.size === 0 || saving ? 0.6 : 1,
+          }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          {saving ? `Saving ${saveProgress?.done ?? 0}/${saveProgress?.total ?? 0}…` : `Save Register (${marks.size} marked Present)`}
+        </button>
+      </div>
+
+      {/* ── Legend ── */}
+      <div className="reg-legend" style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11.5, color: "#64748b", fontFamily: "'DM Sans',sans-serif" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 14, height: 14, borderRadius: 4, background: "#dcfce7", border: "1.5px solid #16a34a", display: "inline-block" }} /> Selected — will be saved as Present</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 14, height: 14, borderRadius: 4, background: "#f1f5f9", border: "1.5px solid #cbd5e1", display: "inline-block" }} /> Already on record</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 14, height: 14, borderRadius: 4, background: "#fff", border: "1.5px dashed #e2e8f0", display: "inline-block" }} /> Unmarked — click to select</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "#dc2626", display: "inline-block" }} /> Weekend</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "#d97706", display: "inline-block" }} /> Public holiday</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>Weekends & holidays are never auto-marked — click a name/day header to toggle whole row/column, or a cell to include one on purpose</span>
+      </div>
+
+      {/* ── Grid ── */}
+      <div className="reg-grid-wrap" style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "auto" }}>
+        {loading ? (
+          <div style={{ padding: 48, textAlign: "center", color: "#94a3b8", fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 22, height: 22, border: "3px solid #e8edf8", borderTopColor: "#1557b0", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+              Loading attendance…
+            </div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: 48, textAlign: "center", color: "#94a3b8", fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>No employees match your filters.</div>
+        ) : (
+          <table style={{ borderCollapse: "collapse", fontFamily: "'DM Sans',sans-serif", fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: "#fafbff", borderBottom: "1.5px solid #e2e8f0" }}>
+                <th style={{ position: "sticky", left: 0, background: "#fafbff", padding: "10px 14px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "#64748b", letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap", zIndex: 2 }}>Employee</th>
+                <th style={{ padding: "10px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "#64748b", letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap", minWidth: 170 }}>Site</th>
+                {dayList.map(d => {
+                  const dow = new Date(year, month, d).getDay();
+                  const weekend = dow === 0 || dow === 6;
+                  const holiday = !weekend && isHoliday(d);
+                  const dayColor = weekend ? "#dc2626" : holiday ? "#d97706" : "#64748b";
+                  return (
+                    <th key={d} onClick={() => markWholeColumn(d)} className="reg-day-th"
+                      title={isFutureDay(d) ? undefined : holiday ? `Public holiday — click to mark/unmark all visible employees on day ${d} anyway` : `Click to mark/unmark all visible employees Present on day ${d}`}
+                      style={{ padding: "8px 6px", textAlign: "center", fontSize: 10.5, fontWeight: 700, color: dayColor, cursor: isFutureDay(d) ? "default" : "pointer", userSelect: "none", minWidth: 30 }}>
+                      {d}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((emp, i) => {
+                const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
+                const rowBg = i % 2 === 0 ? "#fff" : "#fafcff";
+                return (
+                  <tr key={emp.id} style={{ borderBottom: "1px solid #f1f5f9", background: rowBg }}>
+                    <td onClick={() => markWholeRow(emp.id)} className="reg-name-td"
+                      title="Click to mark/unmark all unmarked working days (Mon–Fri, excl. ZW public holidays) this month Present for this employee — click individual weekend/holiday cells to add those manually"
+                      style={{ position: "sticky", left: 0, background: rowBg, padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap", zIndex: 1 }}>
+                      <span style={{ fontWeight: 600, color: "#0a2a5e", fontSize: 12.5 }}>{fullName}</span>
+                      {emp.department_name && <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: 6 }}>· {emp.department_name}</span>}
+                    </td>
+
+                    {/* Site — where this employee worked this month, autocompleted from the shared registry */}
+                    <td style={{ padding: "6px 10px", verticalAlign: "middle" }} onClick={e => e.stopPropagation()}>
+                      <div style={{ position: "relative" }}>
+                        <input
+                          value={siteDraft[emp.id] || ""}
+                          onChange={ev => handleSiteInput(emp.id, ev.target.value)}
+                          onFocus={() => openSiteSuggestions(emp.id)}
+                          onBlur={() => handleSiteBlur(emp.id)}
+                          placeholder="e.g. Masons…"
+                          style={{ width: "100%", boxSizing: "border-box", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, fontFamily: "'DM Sans',sans-serif", color: "#334155", outline: "none", background: "#fafbff" }}
+                          onFocusCapture={e => { e.target.style.borderColor = "#1557b0"; }}
+                        />
+                        {siteDropOpen[emp.id] && (siteSuggestions[emp.id] || []).length > 0 && (
+                          <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 50, background: "#fff", border: "1.5px solid #1557b0", borderRadius: 9, boxShadow: "0 8px 24px rgba(21,87,176,0.15)", overflow: "hidden" }}>
+                            {(siteSuggestions[emp.id] || []).map(s => (
+                              <button key={s} onMouseDown={() => pickSite(emp.id, s)}
+                                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "8px 10px", fontSize: 12, color: "#334155", border: "none", background: "none", cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}
+                                onMouseEnter={e => e.currentTarget.style.background = "#eff6ff"}
+                                onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1557b0" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    {dayList.map(d => {
+                      const ds = dateStr(d);
+                      const status = existing[emp.id]?.[ds];
+                      const selected = marks.has(cellKey(emp.id, d));
+                      const future = isFutureDay(d);
+                      const clickable = !status && !future;
+                      const holidayCell = !status && !future && isHoliday(d);
+                      const cfg = status ? (STATUS_CONFIG[status] || { color: "#64748b", bg: "#f1f5f9" }) : null;
+                      return (
+                        <td key={d} onClick={() => toggleCell(emp.id, d)}
+                          title={status ? `${STATUS_CONFIG[status]?.label || status} — already on record` : future ? "Future date" : holidayCell ? "Public holiday — click to mark Present anyway" : "Click to mark Present"}
+                          style={{ padding: 4, textAlign: "center", cursor: clickable ? "pointer" : "default" }}>
+                          <div style={{
+                            width: 26, height: 26, margin: "0 auto", borderRadius: 6,
+                            background: selected ? "#16a34a" : status ? cfg.bg : future ? "#fafbff" : holidayCell ? "#fef3c7" : "#fff",
+                            border: selected ? "2px solid #16a34a" : status ? `1.5px solid ${cfg.color}` : future ? "1px solid #f1f5f9" : holidayCell ? "1.5px dashed #d97706" : "2px solid #94a3b8",
+                            boxShadow: selected ? "0 2px 6px rgba(22,163,74,0.35)" : "none",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            transition: "all 0.1s",
+                          }}>
+                            {selected && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                            {!selected && status && <span style={{ fontSize: 9.5, fontWeight: 800, color: cfg.color }}>{status.charAt(0).toUpperCase()}</span>}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AttendancePage({ showToast }) {
   const { employees: ctxEmployees, departments } = useHRPortal();
@@ -589,6 +1248,37 @@ export default function AttendancePage({ showToast }) {
 
   // Clicking a row replaces the table with the detail view
   const [selectedEmp, setSelectedEmp] = useState(null);
+
+  // "Mark Register" replaces the table with the bulk-marking grid
+  const [markingMode, setMarkingMode] = useState(false);
+
+  // Monthly register (Excel) download — its own month/year, independent of
+  // the daily register view above, so previous months can be downloaded
+  // without having to navigate the daily date picker to a day in that month.
+  const [registerDownloading, setRegisterDownloading] = useState(false);
+  const todayObj = new Date();
+  const [dlYear,  setDlYear]  = useState(todayObj.getFullYear());
+  const [dlMonth, setDlMonth] = useState(todayObj.getMonth()); // 0-indexed
+
+  const handleDownloadRegister = async () => {
+    if (!ctxEmployees) return;
+    setRegisterDownloading(true);
+    try {
+      const year = dlYear, month = dlMonth; // JS month index
+      const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const monthEnd = `${year}-${String(month + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+      const res = await apiFetch(`${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&page_size=5000`);
+      const data = res.ok ? await res.json() : [];
+      const records = Array.isArray(data) ? data : data.results || [];
+      const activeEmployees = ctxEmployees.filter(e => e.status === "employed");
+      await buildAndDownloadMonthlyRegister({ employees: activeEmployees, records, year, month, showToast });
+    } catch (e) {
+      showToast?.("Failed to generate register.", "err");
+    } finally {
+      setRegisterDownloading(false);
+    }
+  };
 
   // Fetch attendance whenever date changes
   useEffect(() => {
@@ -665,25 +1355,82 @@ export default function AttendancePage({ showToast }) {
     );
   }
 
+  // ── Render bulk register-marking grid in-place ───────────────────────────
+  if (markingMode) {
+    return (
+      <>
+        <style>{`
+          @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+          @keyframes spin { to { transform: rotate(360deg); } }
+          @media (max-width: 768px) {
+            .reg-header { padding: 14px 16px !important; }
+            .reg-toolbar { padding: 12px !important; }
+            .reg-legend { font-size: 10.5px !important; gap: 10px !important; }
+            .reg-name-td { padding: 8px 10px !important; }
+            .reg-name-td span { font-size: 12px !important; }
+            .reg-day-th { min-width: 26px !important; padding: 6px 3px !important; font-size: 10px !important; }
+          }
+          @media (max-width: 640px) {
+            .reg-header { flex-direction: column; align-items: stretch !important; gap: 12px !important; }
+            .reg-header > div:first-child { width: 100%; }
+            .reg-header > div:last-child { width: 100%; flex: none !important; gap: 6px !important; }
+            .reg-header > div:last-child select { flex: 1 1 auto !important; }
+
+            .reg-toolbar { flex-direction: column; align-items: stretch !important; gap: 8px !important; }
+            .reg-toolbar > * { flex: none !important; width: 100% !important; box-sizing: border-box; }
+            .reg-toolbar-spacer { display: none !important; }
+            .reg-btn { width: 100% !important; }
+
+            .reg-day-th { min-width: 24px !important; }
+          }
+        `}</style>
+        <div style={{ paddingLeft: 0 }}>
+          <RegisterMarkingView
+            employees={ctxEmployees}
+            departments={departments}
+            onBack={() => setMarkingMode(false)}
+            showToast={showToast}
+          />
+        </div>
+      </>
+    );
+  }
+
   // ── Register table view ───────────────────────────────────────────────────
   return (
     <>
       <style>{`
         @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
         @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 768px) {
+          .att-page-header h1 { font-size: 19px !important; }
+          .att-filters-row { padding: 12px 14px !important; }
+          .att-table-wrap table { font-size: 12px !important; }
+        }
+        @media (max-width: 640px) {
+          .att-page-header { flex-direction: column; align-items: stretch !important; gap: 10px !important; }
+
+          .att-header-actions { flex-direction: column; align-items: stretch !important; gap: 8px !important; width: 100%; }
+          .att-header-actions > * { flex: none !important; width: 100% !important; box-sizing: border-box; }
+          .att-header-actions input[type="date"] { width: 100% !important; box-sizing: border-box; }
+          .att-header-actions > span { align-self: flex-start; }
+
+          .att-filters-row { flex-direction: column; align-items: stretch !important; gap: 8px !important; }
+          .att-filters-row > * { flex: none !important; width: 100% !important; box-sizing: border-box; }
+        }
       `}</style>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 22, animation: "fadeInUp 0.3s ease" }}>
 
         {/* ── Header ── */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div className="att-page-header" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#0a2a5e", fontFamily: "'Playfair Display',serif" }}>Attendance Register</h1>
             <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 3, fontFamily: "'DM Sans',sans-serif" }}>
               {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="att-header-actions" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             {!isToday && (
               <button onClick={() => setSelectedDate(todayStr)}
                 style={{ padding: "8px 14px", borderRadius: 9, border: "1.5px solid #e2e8f0", background: "#fff", fontSize: 12.5, fontWeight: 600, color: "#1557b0", fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}
@@ -706,6 +1453,59 @@ export default function AttendancePage({ showToast }) {
             {isToday && (
               <span style={{ background: "#dcfce7", color: "#166534", borderRadius: 20, padding: "4px 10px", fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>Today</span>
             )}
+
+            {/* ── Month/Year picker for register download — lets HR grab any previous month ── */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fafbff", border: "1.5px solid #e2e8f0", borderRadius: 9, padding: "3px 4px" }}>
+              <select value={dlMonth} onChange={e => setDlMonth(Number(e.target.value))}
+                style={{ padding: "5px 8px", border: "none", background: "transparent", fontSize: 12.5, fontFamily: "'DM Sans',sans-serif", color: "#334155", outline: "none", cursor: "pointer" }}>
+                {MONTH_NAMES.map((m, i) => <option key={m} value={i}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
+              </select>
+              <select value={dlYear} onChange={e => setDlYear(Number(e.target.value))}
+                style={{ padding: "5px 8px", border: "none", background: "transparent", fontSize: 12.5, fontFamily: "'DM Sans',sans-serif", color: "#334155", outline: "none", cursor: "pointer" }}>
+                {Array.from({ length: 6 }, (_, i) => todayObj.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+
+            <button
+              onClick={handleDownloadRegister}
+              disabled={registerDownloading || !ctxEmployees}
+              title={`Download the full ${MONTH_NAMES[dlMonth].charAt(0) + MONTH_NAMES[dlMonth].slice(1).toLowerCase()} ${dlYear} register, grouped by site`}
+              style={{
+                display: "flex", alignItems: "center", gap: 7,
+                padding: "8px 16px", borderRadius: 9,
+                background: "linear-gradient(135deg,#0a2a5e,#1557b0)",
+                border: "none", color: "#fff",
+                fontSize: 12.5, fontWeight: 700,
+                fontFamily: "'DM Sans',sans-serif",
+                cursor: registerDownloading || !ctxEmployees ? "not-allowed" : "pointer",
+                opacity: registerDownloading || !ctxEmployees ? 0.6 : 1,
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              {registerDownloading ? "Generating…" : "Download Register"}
+            </button>
+
+            <button
+              onClick={() => setMarkingMode(true)}
+              disabled={!ctxEmployees}
+              title="Mark attendance in bulk for any employees, across any departments, for any days"
+              style={{
+                display: "flex", alignItems: "center", gap: 7,
+                padding: "8px 16px", borderRadius: 9,
+                background: "#fff", border: "1.5px solid #1557b0",
+                color: "#1557b0", fontSize: 12.5, fontWeight: 700,
+                fontFamily: "'DM Sans',sans-serif",
+                cursor: !ctxEmployees ? "not-allowed" : "pointer",
+                opacity: !ctxEmployees ? 0.6 : 1,
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+              </svg>
+              Mark Register
+            </button>
           </div>
         </div>
 
@@ -738,7 +1538,7 @@ export default function AttendancePage({ showToast }) {
         <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
 
           {/* Filters */}
-          <div style={{ padding: "16px 20px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div className="att-filters-row" style={{ padding: "16px 20px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <div style={{ position: "relative", flex: "1 1 220px" }}>
               <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
                 width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round">
@@ -768,7 +1568,7 @@ export default function AttendancePage({ showToast }) {
           </div>
 
           {/* Table */}
-          <div style={{ overflowX: "auto" }}>
+          <div className="att-table-wrap" style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", borderSpacing: 0, fontFamily: "'DM Sans',sans-serif", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#fafbff", borderBottom: "1.5px solid #e2e8f0" }}>

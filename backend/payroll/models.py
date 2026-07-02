@@ -6,8 +6,12 @@ class Payroll(models.Model):
     basic_salary    = models.DecimalField(max_digits=10, decimal_places=2)
     allowances      = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     deductions      = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    bank_name       = models.CharField(max_length=100, blank=True)
-    bank_account    = models.CharField(max_length=50, blank=True)
+    # ── USD bank account on file ──
+    bank_name_usd    = models.CharField(max_length=100, blank=True)
+    bank_account_usd = models.CharField(max_length=50, blank=True)
+    # ── ZiG (ZWG) bank account on file — kept separate from the USD account ──
+    bank_name_zig    = models.CharField(max_length=100, blank=True)
+    bank_account_zig = models.CharField(max_length=50, blank=True)
     currency        = models.CharField(max_length=10, default='USD')
     updated_at      = models.DateTimeField(auto_now=True)
     updated_by      = models.CharField(max_length=100)  # AdminUser username
