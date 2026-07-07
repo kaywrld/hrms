@@ -176,7 +176,7 @@ function Toast({ msg, type, onDone }) {
 // ── Stat card ─────────────────────────────────────────────────────────────────
 function StatCard({ icon, label, value, sub }) {
   return (
-    <div style={{
+    <div className="hr-stat-card" style={{
       background: "#fff", borderRadius: 14,
       border: "1px solid #e2e8f0",
       borderLeft: "4px solid #1557b0",
@@ -213,7 +213,7 @@ function StatCard({ icon, label, value, sub }) {
 // ── Section card wrapper ──────────────────────────────────────────────────────
 function Card({ title, children, style = {} }) {
   return (
-    <div style={{
+    <div className="hr-card" style={{
       background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0",
       boxShadow: "0 1px 6px rgba(0,0,0,0.05)", padding: "22px 24px",
       ...style,
@@ -1890,8 +1890,7 @@ function Dashboard({ showToast, isHRM: isHRMProp, onEditEmployee }) {
   const s = stats || {};
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-
+    <div className="hr-dashboard-gap" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {/* Page header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div>
@@ -2694,6 +2693,34 @@ function HRPortalInner() {
         @media (max-width: 420px) {
           .hr-page-pad { padding: 10px !important; }
         }
+
+        /* Short viewports: e.g. 1024x600 laptops — the real constraint is height, not width */
+        @media (max-height: 700px) {
+          .hr-topbar { height: 52px !important; }
+          .hr-page-pad { padding: 16px !important; }
+          .hr-dashboard-gap { gap: 14px !important; }
+
+          .hr-stat-card {
+            padding: 12px 16px !important;
+          }
+          .hr-stat-card > div:first-child {
+            width: 36px !important;
+            height: 36px !important;
+          }
+
+          .hr-card {
+            padding: 14px 18px !important;
+          }
+
+          /* Tighten the sidebar branding/user blocks so they don't eat vertical space unnecessarily */
+          .hr-sidebar-mobile > div:first-child { height: 52px !important; }
+        }
+
+        /* Combine width + height: the classic 1024x600 case specifically */
+        @media (max-width: 1200px) and (max-height: 700px) {
+          .hr-stats-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 10px !important; }
+          .hr-charts-3 { grid-template-columns: repeat(3, 1fr) !important; gap: 12px !important; }
+        }
       `}</style>
 
       {/* Mobile overlay */}
@@ -2724,7 +2751,7 @@ function HRPortalInner() {
         >
           {/* Top bar */}
           <header
-            className="hr-topbar-pad"
+            className="hr-topbar-pad hr-topbar"
             style={{
               height: 64, background: "#fff",
               borderBottom: "1px solid #e2e8f0",

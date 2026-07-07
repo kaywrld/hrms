@@ -186,6 +186,7 @@ function StatusBadge({ status, size = "sm" }) {
 function StatCard({ label, value, color = "#1557b0", bg = "#eff6ff", icon, clickable, onClick, active }) {
   return (
     <div
+      className="att-stat-card"
       onClick={onClick}
       style={{
         background: active ? color : "#fff",
@@ -198,7 +199,7 @@ function StatCard({ label, value, color = "#1557b0", bg = "#eff6ff", icon, click
         transition: "all 0.15s",
       }}
     >
-      <div style={{
+      <div className="att-stat-icon" style={{
         width: 40, height: 40, borderRadius: 10,
         background: active ? "rgba(255,255,255,0.2)" : bg,
         display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
@@ -206,8 +207,8 @@ function StatCard({ label, value, color = "#1557b0", bg = "#eff6ff", icon, click
         {icon}
       </div>
       <div>
-        <div style={{ fontSize: 10, color: active ? "rgba(255,255,255,0.75)" : "#94a3b8", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", fontFamily: "'DM Sans',sans-serif" }}>{label}</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: active ? "#fff" : "#0a2a5e", fontFamily: "'Playfair Display',serif", lineHeight: 1.1 }}>{value}</div>
+        <div className="att-stat-label" style={{ fontSize: 10, color: active ? "rgba(255,255,255,0.75)" : "#94a3b8", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", fontFamily: "'DM Sans',sans-serif" }}>{label}</div>
+        <div className="att-stat-value" style={{ fontSize: 22, fontWeight: 700, color: active ? "#fff" : "#0a2a5e", fontFamily: "'Playfair Display',serif", lineHeight: 1.1 }}>{value}</div>
       </div>
     </div>
   );
@@ -220,7 +221,7 @@ function ProfileCard({ title, children }) {
       <div style={{ padding: "12px 20px", borderBottom: "1px solid #f1f5f9", background: "#fafbff" }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'DM Sans',sans-serif" }}>{title}</span>
       </div>
-      <div style={{ padding: "18px 20px" }}>{children}</div>
+      <div className="ed-info-grid-wrap" style={{ padding: "18px 20px" }}>{children}</div>
     </div>
   );
 }
@@ -355,13 +356,14 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 0, animation: "fadeInUp 0.25s ease" }}>
 
       {/* ── Blue header bar with back button ── */}
-      <div style={{
+      <div className="ed-header" style={{
         background: "linear-gradient(135deg,#0a2a5e,#1557b0)",
         borderRadius: 16, padding: "20px 24px", marginBottom: 20,
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <button
+            className="ed-back-btn"
             onClick={onBack}
             style={{
               display: "flex", alignItems: "center", gap: 7,
@@ -378,17 +380,17 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
             </svg>
             Back to Register
           </button>
-          <div style={{ width: 1, height: 32, background: "rgba(255,255,255,0.2)" }} />
+          <div className="ed-header-divider" style={{ width: 1, height: 32, background: "rgba(255,255,255,0.2)" }} />
           <div>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 18, fontWeight: 700, color: "#fff" }}>{fullName}</div>
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", fontFamily: "'DM Sans',sans-serif", marginTop: 2 }}>
+            <div className="ed-header-name" style={{ fontFamily: "'Playfair Display',serif", fontSize: 18, fontWeight: 700, color: "#fff" }}>{fullName}</div>
+            <div className="ed-header-sub" style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", fontFamily: "'DM Sans',sans-serif", marginTop: 2 }}>
               {emp.job_title || "—"} · {emp.department_name || "—"}
               {emp.employee_number && ` · #${emp.employee_number}`}
             </div>
           </div>
         </div>
         {/* History summary chips */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="ed-chips" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {STATUS_ORDER.map(s => counts[s] > 0 && (
             <div key={s} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: STATUS_CONFIG[s].color }} />
@@ -402,9 +404,10 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
       </div>
 
       {/* ── Tabs ── */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "2px solid #e2e8f0" }}>
+      <div className="ed-tabs" style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "2px solid #e2e8f0" }}>
         {[{ key: "history", label: "Attendance History" }, { key: "profile", label: "Employee Profile" }].map(t => (
           <button key={t.key} onClick={() => setActiveTab(t.key)}
+            className="ed-tab-btn"
             style={{
               padding: "10px 20px", border: "none", background: "transparent",
               fontSize: 13.5, fontWeight: activeTab === t.key ? 700 : 500,
@@ -419,13 +422,14 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
       {/* ── Attendance History tab ── */}
       {activeTab === "history" && (
         <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-          <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="ed-history-toolbar" style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 12, color: "#64748b", fontFamily: "'DM Sans',sans-serif" }}>
               {emp.date_joined ? `Since ${fmtDateLong(emp.date_joined)}` : "Full attendance history"}
             </span>
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 onClick={downloadCSV} disabled={!!downloading || !history.length}
+                className="ed-dl-btn"
                 style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 9, border: "1.5px solid #e2e8f0", background: "#fff", fontSize: 12.5, fontWeight: 600, color: "#0a2a5e", fontFamily: "'DM Sans',sans-serif", cursor: history.length ? "pointer" : "not-allowed", opacity: history.length ? 1 : 0.5 }}
                 onMouseEnter={e => { if (history.length) e.currentTarget.style.borderColor = "#1557b0"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = "#e2e8f0"; }}
@@ -437,6 +441,7 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
               </button>
               <button
                 onClick={downloadPDF} disabled={!!downloading || !history.length}
+                className="ed-dl-btn"
                 style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 9, border: "1.5px solid #fecaca", background: "#fff5f5", fontSize: 12.5, fontWeight: 600, color: "#dc2626", fontFamily: "'DM Sans',sans-serif", cursor: history.length ? "pointer" : "not-allowed", opacity: history.length ? 1 : 0.5 }}
                 onMouseEnter={e => { if (history.length) e.currentTarget.style.borderColor = "#dc2626"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = "#fecaca"; }}
@@ -465,8 +470,8 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
                 const dt = new Date(y, m - 1, d);
                 const cfg = STATUS_CONFIG[r.status] || { color: "#64748b", bg: "#f1f5f9" };
                 return (
-                  <div key={r.id} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "12px 24px", borderBottom: i < recs.length - 1 ? "1px solid #f8faff" : "none", background: i % 2 === 0 ? "#fff" : "#fafcff" }}>
-                    <div style={{ width: 46, flexShrink: 0, textAlign: "center", background: cfg.bg, borderRadius: 10, padding: "6px 4px", border: `1px solid ${cfg.color}22` }}>
+                  <div key={r.id} className="ed-history-row" style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "12px 24px", borderBottom: i < recs.length - 1 ? "1px solid #f8faff" : "none", background: i % 2 === 0 ? "#fff" : "#fafcff" }}>
+                    <div className="ed-day-tile" style={{ width: 46, flexShrink: 0, textAlign: "center", background: cfg.bg, borderRadius: 10, padding: "6px 4px", border: `1px solid ${cfg.color}22` }}>
                       <div style={{ fontSize: 18, fontWeight: 700, color: cfg.color, fontFamily: "'Playfair Display',serif", lineHeight: 1 }}>{dt.getDate()}</div>
                       <div style={{ fontSize: 9.5, color: cfg.color, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                         {dt.toLocaleDateString("en-GB", { month: "short" })}
@@ -522,7 +527,7 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
           ) : (
             <>
               <ProfileCard title="Personal Information">
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px 24px" }}>
+                <div className="ed-info-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px 24px" }}>
                   <InfoRow label="Full Name" value={detail.full_name || [detail.first_name, detail.middle_name, detail.last_name].filter(Boolean).join(" ")} />
                   <InfoRow label="Date of Birth" value={detail.date_of_birth ? fmtDateLong(detail.date_of_birth) : null} />
                   <InfoRow label="Gender" value={detail.gender === "M" ? "Male" : detail.gender === "F" ? "Female" : detail.gender === "O" ? "Other" : detail.gender} />
@@ -534,7 +539,7 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
               </ProfileCard>
 
               <ProfileCard title="Employment Details">
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px 24px" }}>
+                <div className="ed-info-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px 24px" }}>
                   <InfoRow label="Employee Number" value={detail.employee_number} />
                   <InfoRow label="Job Title" value={detail.job_title} />
                   <InfoRow label="Department" value={detail.department_name} />
@@ -546,7 +551,7 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
 
               {(detail.basic_salary || detail.bank_name_usd || detail.bank_name_zig) && (
                 <ProfileCard title="Payroll & Banking">
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px 24px" }}>
+                  <div className="ed-info-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px 24px" }}>
                     <InfoRow label="Basic Salary" value={detail.basic_salary ? `${detail.currency || "USD"} ${Number(detail.basic_salary).toLocaleString()}` : null} />
                     <InfoRow label="Allowances"   value={detail.allowances  ? `${detail.currency || "USD"} ${Number(detail.allowances).toLocaleString()}`  : null} />
                     <InfoRow label="Deductions"   value={detail.deductions  ? `${detail.currency || "USD"} ${Number(detail.deductions).toLocaleString()}`  : null} />
@@ -561,7 +566,7 @@ function EmployeeDetailView({ emp, onBack, showToast }) {
 
               {detail.nok_full_name && (
                 <ProfileCard title="Next of Kin">
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px 24px" }}>
+                  <div className="ed-info-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px 24px" }}>
                     <InfoRow label="Name"         value={detail.nok_full_name} />
                     <InfoRow label="Relationship" value={detail.nok_relationship} />
                     <InfoRow label="Phone"        value={detail.nok_phone} />
@@ -1241,10 +1246,24 @@ export default function AttendancePage({ showToast }) {
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [deptFilter,   setDeptFilter]   = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [siteFilter,   setSiteFilter]   = useState("all");
   const [search,       setSearch]       = useState("");
 
   const [attendance, setAttendance] = useState([]);
   const [attLoading, setAttLoading] = useState(true);
+
+  // Shared site registry — same source the "Mark Register" view writes to,
+  // so this filter's options always line up with what HR can type there.
+  const [locationRegistry, setLocationRegistry] = useState([]);
+  useEffect(() => {
+    apiFetch(`${API}/attendance/locations/`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        const list = (Array.isArray(data) ? data : data.results || []).map(l => l.name);
+        setLocationRegistry(list);
+      })
+      .catch(() => {});
+  }, []);
 
   // Clicking a row replaces the table with the detail view
   const [selectedEmp, setSelectedEmp] = useState(null);
@@ -1313,6 +1332,7 @@ export default function AttendancePage({ showToast }) {
         ...emp,
         fullName: emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—",
         attRec: attMap[emp.id] || null,
+        site: (attMap[emp.id]?.work_location || "").trim(),
       }));
   }, [ctxEmployees, attMap]);
 
@@ -1335,8 +1355,10 @@ export default function AttendancePage({ showToast }) {
     const matchDept   = deptFilter === "all" || String(emp.department) === deptFilter;
     const matchStatus = statusFilter === "all" ||
       (statusFilter === "unmarked" ? !emp.attRec : emp.attRec?.status === statusFilter);
-    return matchSearch && matchDept && matchStatus;
-  }), [enriched, search, deptFilter, statusFilter]);
+    const matchSite = siteFilter === "all" ||
+      (siteFilter === "unassigned" ? !emp.site : emp.site === siteFilter);
+    return matchSearch && matchDept && matchStatus && matchSite;
+  }), [enriched, search, deptFilter, statusFilter, siteFilter]);
 
   const isToday = selectedDate === todayStr;
 
@@ -1347,6 +1369,27 @@ export default function AttendancePage({ showToast }) {
         <style>{`
           @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
           @keyframes spin { to { transform: rotate(360deg); } }
+
+          /* ── Medium/laptop screens (e.g. 1024x600) ── */
+          @media (max-width: 1180px) {
+            .ed-header { padding: 16px 18px !important; gap: 12px !important; }
+            .ed-header-name { font-size: 16px !important; }
+            .ed-header-sub { font-size: 11px !important; }
+            .ed-back-btn { padding: 7px 12px !important; font-size: 12px !important; }
+            .ed-chips { gap: 6px !important; }
+            .ed-chips > div { padding: 3px 8px !important; }
+            .ed-chips span { font-size: 10px !important; }
+            .ed-tabs button { padding: 8px 14px !important; font-size: 12.5px !important; }
+            .ed-history-toolbar { padding: 12px 16px !important; }
+            .ed-dl-btn { padding: 7px 12px !important; font-size: 11.5px !important; }
+            .ed-day-tile { width: 40px !important; padding: 5px 3px !important; }
+            .ed-history-row { padding: 10px 16px !important; gap: 10px !important; }
+            .ed-info-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)) !important; gap: 12px 18px !important; }
+          }
+          @media (max-height: 700px) {
+            .ed-header { padding: 14px 18px !important; margin-bottom: 14px !important; }
+            .ed-history-row { padding: 9px 16px !important; }
+          }
         `}</style>
         <div style={{ paddingLeft: 0 }}>
           <EmployeeDetailView emp={selectedEmp} onBack={() => setSelectedEmp(null)} showToast={showToast} />
@@ -1362,6 +1405,26 @@ export default function AttendancePage({ showToast }) {
         <style>{`
           @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
           @keyframes spin { to { transform: rotate(360deg); } }
+
+          /* ── Medium/laptop screens (e.g. 1024x600) ── */
+          @media (max-width: 1180px) {
+            .reg-header { padding: 14px 16px !important; gap: 10px !important; }
+            .reg-header > div:first-child > div:last-child > div:first-child { font-size: 16px !important; }
+            .reg-header > div:last-child select { padding: 6px 8px !important; font-size: 11.5px !important; }
+            .reg-toolbar { padding: 12px 14px !important; gap: 8px !important; }
+            .reg-toolbar input, .reg-toolbar select { padding: 7px 10px !important; font-size: 12px !important; }
+            .reg-btn { padding: 7px 12px !important; font-size: 11.5px !important; }
+            .reg-legend { font-size: 10.5px !important; gap: 10px !important; }
+            .reg-name-td { padding: 7px 12px !important; }
+            .reg-name-td span { font-size: 11.5px !important; }
+            .reg-day-th { min-width: 27px !important; padding: 6px 4px !important; font-size: 10px !important; }
+          }
+          @media (max-height: 700px) {
+            .reg-header { padding: 12px 16px !important; }
+            .reg-toolbar { padding: 10px 14px !important; }
+            .reg-grid-wrap { max-height: 62vh !important; }
+          }
+
           @media (max-width: 768px) {
             .reg-header { padding: 14px 16px !important; }
             .reg-toolbar { padding: 12px !important; }
@@ -1402,6 +1465,40 @@ export default function AttendancePage({ showToast }) {
       <style>{`
         @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Medium/laptop screens (e.g. 1024x600) ── */
+        @media (max-width: 1180px) {
+          .att-page-header h1 { font-size: 19px !important; }
+          .att-header-actions { gap: 6px !important; }
+          .att-header-actions button,
+          .att-header-actions select,
+          .att-header-actions input[type="date"] { font-size: 12px !important; padding: 7px 10px !important; }
+          .att-header-actions input[type="date"] { padding-left: 30px !important; }
+
+          .att-stat-row { gap: 8px !important; justify-content: center !important; }
+          .att-stat-card { padding: 12px 14px !important; gap: 8px !important; min-width: 110px !important; }
+          .att-stat-icon { width: 32px !important; height: 32px !important; }
+          .att-stat-icon svg { width: 15px !important; height: 15px !important; }
+          .att-stat-label { font-size: 9px !important; }
+          .att-stat-value { font-size: 18px !important; }
+
+          .att-filters-row { padding: 12px 14px !important; gap: 8px !important; }
+          .att-filters-row select { flex: 0 1 140px !important; }
+          .att-filters-row input, .att-filters-row select { padding: 7px 10px !important; font-size: 12px !important; }
+
+          .att-table-wrap table { font-size: 12px !important; }
+          .att-table-wrap th, .att-table-wrap td { padding: 8px 10px !important; }
+        }
+        @media (max-height: 700px) {
+          .att-stat-card { padding: 10px 12px !important; }
+          .att-filters-row { padding: 10px 14px !important; }
+          .att-table-wrap th, .att-table-wrap td { padding: 7px 10px !important; }
+        }
+        @media (max-width: 1180px) and (max-height: 700px) {
+          .att-stat-row { flex-wrap: nowrap !important; overflow-x: auto !important; justify-content: flex-start !important; }
+          .att-stat-card { flex: 0 0 auto !important; min-width: 128px !important; }
+        }
+
         @media (max-width: 768px) {
           .att-page-header h1 { font-size: 19px !important; }
           .att-filters-row { padding: 12px 14px !important; }
@@ -1515,7 +1612,7 @@ export default function AttendancePage({ showToast }) {
         </div>
 
         {/* ── Stat cards — all keyed to selectedDate ── */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+        <div className="att-stat-row" style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
           <StatCard label="Total Employees" value={enriched.length} color="#1557b0" bg="#eff6ff"
             icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1557b0" strokeWidth="1.8" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>}
           />
@@ -1561,6 +1658,13 @@ export default function AttendancePage({ showToast }) {
               <option value="all">All Statuses</option>
               {STATUS_ORDER.map(s => <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>)}
               <option value="unmarked">Not Marked</option>
+            </select>
+            <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}
+              title="Filter by the site employees were marked at on this date"
+              style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 160px" }}>
+              <option value="all">All Sites</option>
+              {locationRegistry.map(site => <option key={site} value={site}>{site}</option>)}
+              <option value="unassigned">Unassigned</option>
             </select>
             <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
               {filtered.length} of {enriched.length} employees

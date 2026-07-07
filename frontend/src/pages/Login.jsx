@@ -454,6 +454,51 @@ export default function Login() {
         }
         .btn-close-modal:hover { opacity: 0.88; }
 
+        /* Medium screens: small laptops / tablets in landscape (e.g. 1024px wide) */
+        @media (max-width: 1100px) {
+          .hrms-card {
+            max-width: 400px;
+            padding: 36px 32px 32px;
+          }
+
+          .logo-img { height: 48px; }
+          .welcome-title { font-size: 20px; }
+          .welcome-sub { font-size: 13px; margin-bottom: 22px; }
+        }
+
+        /* Short viewports: catches things like 1024x600 where height is the real constraint */
+        @media (max-height: 700px) {
+          .hrms-root {
+            align-items: flex-start;
+            padding: 16px 0;
+          }
+
+          .hrms-card {
+            padding: 28px 32px 24px;
+            animation: none; /* avoid slideUp clipping on short screens */
+          }
+
+          .logo-wrap { margin-bottom: 16px; }
+          .logo-img { height: 40px; }
+
+          .divider { margin-bottom: 16px; }
+
+          .welcome-title { font-size: 18px; margin-bottom: 4px; }
+          .welcome-sub { font-size: 13px; margin-bottom: 18px; }
+
+          .field { margin-bottom: 12px; }
+          .input-wrap input { padding: 10px 44px 10px 14px; font-size: 14px; }
+
+          .btn-login { padding: 11px; margin-top: 2px; }
+
+          .footer-note { margin-top: 14px; }
+        }
+
+        /* Combine: when BOTH width and height are constrained (the classic 1024x600 case) */
+        @media (max-width: 1100px) and (max-height: 700px) {
+          .hrms-card { max-width: 380px; }
+        }
+
         @media (max-width: 480px) {
           .hrms-card { padding: 36px 24px 32px; margin: 16px; border-radius: 16px; }
           .logo-img  { height: 44px; }

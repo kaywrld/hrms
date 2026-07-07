@@ -318,7 +318,7 @@ function Modal({ title, onClose, children, maxWidth = 620 }) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
-        <div style={{ padding: 24, overflowY: "auto", flex: 1 }}>{children}</div>
+        <div className="emp-modal-body" style={{ padding: 24, overflowY: "auto", flex: 1 }}>{children}</div>
       </div>
     </div>
   );
@@ -735,7 +735,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
     <Modal title={isEdit ? "Edit Employee" : "Add New Employee"} onClose={onClose} maxWidth={640}>
 
       {/* ── Step progress bar ── */}
-      <div style={{ display: "flex", alignItems: "center", marginBottom: 24, gap: 0 }}>
+      <div className="emp-modal-steps" style={{ display: "flex", alignItems: "center", marginBottom: 24, gap: 0 }}>
         {steps.map((s, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", flex: i < steps.length - 1 ? 1 : "none" }}>
             <div
@@ -768,7 +768,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
       </div>
 
       {/* Step label */}
-      <div style={{
+      <div className="emp-modal-step-label" style={{
         textAlign: "center", marginBottom: 18, marginTop: -14,
         fontSize: 12, fontWeight: 700, color: "#1557b0",
         fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.5px",
@@ -781,7 +781,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
       {step === 0 && (
         <>
           <ProfilePicUpload file={profilePic} onChange={setProfilePic} existingUrl={employee?.profile_picture} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+          <div className="emp-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
             <FField label="First Name *"><FInput value={form.first_name} onChange={set("first_name")} placeholder="e.g. John" /></FField>
             <FField label="Last Name *"><FInput value={form.last_name} onChange={set("last_name")} placeholder="e.g. Doe" /></FField>
             <FField label="Middle Name"><FInput value={form.middle_name} onChange={set("middle_name")} placeholder="Optional" /></FField>
@@ -917,7 +917,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
 
       {/* ── Step 1: Employment ── */}
       {step === 1 && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+        <div className="emp-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
           <FField label="Employee Number *"><FInput value={form.employee_number} onChange={set("employee_number")} /></FField>
           <FField label="Job Title *"><FInput value={form.job_title} onChange={set("job_title")} placeholder="e.g. Site Engineer" /></FField>
           <FField label="Department">
@@ -980,7 +980,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
           </FField>
 
           {dailyRate !== null && (
-            <div style={{ background: "linear-gradient(135deg,#f0f9ff,#eff6ff)", border: "1px solid #bfdbfe", borderRadius: 12, padding: "18px 20px", marginTop: 4, marginBottom: 18 }}>
+            <div className="emp-pay-calc-box" style={{ background: "linear-gradient(135deg,#f0f9ff,#eff6ff)", border: "1px solid #bfdbfe", borderRadius: 12, padding: "18px 20px", marginTop: 4, marginBottom: 18 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#1557b0", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 14, fontFamily: "'DM Sans',sans-serif" }}>
                 Pay Calculation — {new Date(currentYear, currentMonth).toLocaleString("en-GB", { month: "long", year: "numeric" })}
               </div>
@@ -995,7 +995,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
             </div>
           )}
 
-          <div style={{ marginTop: 8, padding: "16px 18px", background: "#fafbff", border: "1.5px solid #e2e8f0", borderRadius: 12, marginBottom: 8 }}>
+          <div className="emp-bank-box" style={{ marginTop: 8, padding: "16px 18px", background: "#fafbff", border: "1.5px solid #e2e8f0", borderRadius: 12, marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 14, fontFamily: "'DM Sans',sans-serif" }}>
               🏦 Banking Details (Optional)
             </div>
@@ -1004,7 +1004,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
             <div style={{ fontSize: 10.5, fontWeight: 700, color: "#1557b0", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>
               USD Account
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+            <div className="emp-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
               <FField label="Bank Name">
                 <FInput value={form.bank_name_usd} onChange={set("bank_name_usd")} placeholder="e.g. CBZ Bank" />
               </FField>
@@ -1020,7 +1020,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
             <div style={{ fontSize: 10.5, fontWeight: 700, color: "#1557b0", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>
               ZiG Account
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+            <div className="emp-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
               <FField label="Bank Name">
                 <FInput value={form.bank_name_zig} onChange={set("bank_name_zig")} placeholder="e.g. Steward Bank" />
               </FField>
@@ -1037,7 +1037,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
 
       {/* ── Step 3: Next of Kin ── */}
       {step === 3 && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+        <div className="emp-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
           <FField label="Next of Kin Full Name">
             <FInput value={form.nok_full_name} onChange={set("nok_full_name")} placeholder="Full name" />
           </FField>
@@ -1157,7 +1157,7 @@ function EmpAvatar({ name, size = 36, photo = null }) {
 // ── Stat Card ─────────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, icon, accent = "#1557b0", bg = "#eff6ff" }) {
   return (
-    <div style={{
+    <div className="emp-stat-card" style={{
       background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0",
       borderLeft: `4px solid ${accent}`,
       padding: "18px 20px", display: "flex", alignItems: "center", gap: 14,
@@ -1167,7 +1167,7 @@ function StatCard({ label, value, sub, icon, accent = "#1557b0", bg = "#eff6ff" 
       onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 6px 24px ${accent}22`; e.currentTarget.style.transform = "translateY(-2px)"; }}
       onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.05)"; e.currentTarget.style.transform = "none"; }}
     >
-      <div style={{ width: 44, height: 44, borderRadius: 12, background: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <div className="emp-stat-icon" style={{ width: 44, height: 44, borderRadius: 12, background: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         {icon}
       </div>
       <div>
@@ -1405,6 +1405,39 @@ export default function HREmployeesPage({ showToast, isHRM }) {
       <style>{`
         @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Short viewports: e.g. 1024x600 laptops — height is the real constraint, not width */
+        @media (max-height: 700px) {
+          .emp-stats-row { gap: 10px !important; }
+          .emp-stat-card {
+            padding: 12px 14px !important;
+          }
+          .emp-stat-icon {
+            width: 34px !important;
+            height: 34px !important;
+          }
+
+          .emp-filters-bar { padding: 12px 20px 10px !important; }
+          .emp-month-bar { padding: 6px 20px !important; }
+
+          .emp-th, .emp-td { padding: 7px 14px !important; }
+
+          /* Modal wizard: tighten step circles + spacing so 5-step forms fit on short screens */
+          .emp-modal-steps { margin-bottom: 14px !important; }
+          .emp-modal-steps > div > div:first-child {
+            width: 26px !important;
+            height: 26px !important;
+            font-size: 11px !important;
+          }
+          .emp-modal-step-label { margin-bottom: 12px !important; }
+          .emp-modal-body { padding: 14px 20px !important; }
+          .emp-pay-calc-box { padding: 12px 16px !important; margin-bottom: 12px !important; }
+          .emp-bank-box { padding: 10px 14px !important; }
+        }
+
+        @media (max-width: 480px) {
+          .emp-form-2col { grid-template-columns: 1fr !important; }
+        }
       `}</style>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 22, animation: "fadeInUp 0.3s ease" }}>
@@ -1496,7 +1529,7 @@ export default function HREmployeesPage({ showToast, isHRM }) {
         </div>
 
         {/* Stat cards */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+        <div className="emp-stats-row" style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
           <StatCard
             label="Total Employees" value={totalWorkers}
             sub={`${enriched.filter(e => e.status === "employed").length} currently employed`}
@@ -1528,7 +1561,7 @@ export default function HREmployeesPage({ showToast, isHRM }) {
           boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden",
         }}>
           {/* Filters */}
-          <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div className="emp-filters-bar" style={{ padding: "18px 20px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <div style={{ position: "relative", flex: "1 1 220px" }}>
               <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
                 width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round">
@@ -1575,7 +1608,7 @@ export default function HREmployeesPage({ showToast, isHRM }) {
           </div>
 
           {/* Month info bar */}
-          <div style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+          <div className="emp-month-bar" style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
             <div style={{ fontSize: 12, color: "#1557b0", fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
               📅 {monthLabel} — {workingDaysThisMonth} working days (excl. weekends &amp; Zimbabwe public holidays)
             </div>
@@ -1590,7 +1623,7 @@ export default function HREmployeesPage({ showToast, isHRM }) {
               <thead>
                 <tr style={{ background: "#fafbff", borderBottom: "1.5px solid #e2e8f0" }}>
                   {["Employee", "Job Title", "Days Attended", "Monthly Salary", "Daily Rate", "Amount To Be Paid"].map(h => (
-                    <th key={h} style={{
+                    <th key={h} className="emp-th" style={{
                       padding: "10px 14px", textAlign: "left",
                       fontSize: 10, fontWeight: 700, color: "#64748b",
                       letterSpacing: "0.8px", textTransform: "uppercase",
@@ -1622,7 +1655,7 @@ export default function HREmployeesPage({ showToast, isHRM }) {
                       onMouseEnter={e => e.currentTarget.style.background = "#eff6ff"}
                       onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "#fff" : "#fafcff"}
                     >
-                      <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
+                      <td className="emp-td" style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <EmpAvatar name={emp.fullName} size={34} photo={emp.profile_picture} />
                           <div>
@@ -1631,19 +1664,19 @@ export default function HREmployeesPage({ showToast, isHRM }) {
                           </div>
                         </div>
                       </td>
-                      <td style={{ padding: "11px 14px", color: "#334155", fontWeight: 500, fontSize: 12.5, whiteSpace: "nowrap" }}>
+                      <td className="emp-td" style={{ padding: "11px 14px", color: "#334155", fontWeight: 500, fontSize: 12.5, whiteSpace: "nowrap" }}>
                         {emp.job_title || emp.position || "—"}
                       </td>
-                      <td style={{ padding: "11px 14px", minWidth: 150 }}>
+                      <td className="emp-td" style={{ padding: "11px 14px", minWidth: 150 }}>
                         <AttBar attended={emp.daysAttended} total={workingDaysThisMonth} />
                       </td>
-                      <td style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", fontSize: 12.5, color: emp.monthlySalary > 0 ? "#0f172a" : "#cbd5e1", whiteSpace: "nowrap" }}>
+                      <td className="emp-td" style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", fontSize: 12.5, color: emp.monthlySalary > 0 ? "#0f172a" : "#cbd5e1", whiteSpace: "nowrap" }}>
                         {emp.monthlySalary > 0 ? fmt$(emp.monthlySalary) : <span style={{ color: "#cbd5e1" }}>Not set</span>}
                       </td>
-                      <td style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
+                      <td className="emp-td" style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
                         {emp.dailyRate > 0 ? fmt$(emp.dailyRate) : "—"}
                       </td>
-                      <td style={{ padding: "11px 14px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      <td className="emp-td" style={{ padding: "11px 14px", textAlign: "right", whiteSpace: "nowrap" }}>
                         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, color: payColor }}>
                           {emp.amountToBePaid > 0 ? fmt$(emp.amountToBePaid) : <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 400, color: "#cbd5e1" }}>—</span>}
                         </div>

@@ -11,6 +11,14 @@
 //  - Download (CSV / PDF)
 //  - Uses HRPortalContext for employees + departments (no duplicate DB calls)
 //  - localStorage for deduction/bonus persistence per employee per month
+//
+//  RESPONSIVE NOTE: This file was updated with a set of `pr-*` className hooks
+//  plus an injected <style> block containing @media rules. The base look on
+//  desktop (large screens) and mobile is untouched — the new rules only fire
+//  between the mobile breakpoint and ~1180px wide, and additionally for short
+//  viewports (max-height: 700px), which is what makes 1024x600-class laptops
+//  the problem size. All overrides use !important because the base styles are
+//  inline (inline styles otherwise beat any stylesheet, media query or not).
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -102,6 +110,37 @@ function savePayrollEntry(empId, year, month, data) {
   } catch {}
 }
 
+// ── ZiG exchange rate: valid for the calendar day it was set, then expires ────
+const ZIG_RATE_STORAGE_KEY = "hr_payroll_zig_rate";
+
+function getTodayDateStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Returns the saved rate as a string if it was set today, otherwise clears
+// the stale entry and returns null (so the user gets prompted for a fresh one).
+function loadTodaysZigRate() {
+  try {
+    const stored = localStorage.getItem(ZIG_RATE_STORAGE_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    if (parsed && parsed.rate && parsed.date === getTodayDateStr()) {
+      return parsed.rate;
+    }
+    localStorage.removeItem(ZIG_RATE_STORAGE_KEY);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveTodaysZigRate(rate) {
+  try {
+    localStorage.setItem(ZIG_RATE_STORAGE_KEY, JSON.stringify({ rate, date: getTodayDateStr() }));
+  } catch {}
+}
+
 // ── Format helpers ────────────────────────────────────────────────────────────
 function fmtAmount(amount, currency, zigRate) {
   if (amount === null || amount === undefined || isNaN(amount)) return "—";
@@ -131,6 +170,7 @@ const inputStyle = {
 function StatCard({ label, value, sub, icon, accent = "#1557b0", bg = "#eff6ff" }) {
   return (
     <div
+      className="pr-stat-card"
       style={{
         background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0",
         borderLeft: `4px solid ${accent}`,
@@ -141,13 +181,13 @@ function StatCard({ label, value, sub, icon, accent = "#1557b0", bg = "#eff6ff" 
       onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 6px 24px ${accent}22`; e.currentTarget.style.transform = "translateY(-2px)"; }}
       onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.05)"; e.currentTarget.style.transform = "none"; }}
     >
-      <div style={{ width: 44, height: 44, borderRadius: 12, background: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <div className="pr-stat-icon" style={{ width: 44, height: 44, borderRadius: 12, background: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         {icon}
       </div>
       <div>
-        <div style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 2, fontFamily: "'DM Sans',sans-serif" }}>{label}</div>
-        <div style={{ fontSize: 20, fontWeight: 700, color: "#0a2a5e", lineHeight: 1, fontFamily: "'Playfair Display',serif" }}>{value}</div>
-        {sub && <div style={{ fontSize: 11, color: "#64748b", marginTop: 3, fontFamily: "'DM Sans',sans-serif" }}>{sub}</div>}
+        <div className="pr-stat-label" style={{ fontSize: 10.5, color: "#94a3b8", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 2, fontFamily: "'DM Sans',sans-serif" }}>{label}</div>
+        <div className="pr-stat-value" style={{ fontSize: 20, fontWeight: 700, color: "#0a2a5e", lineHeight: 1, fontFamily: "'Playfair Display',serif" }}>{value}</div>
+        {sub && <div className="pr-stat-sub" style={{ fontSize: 11, color: "#64748b", marginTop: 3, fontFamily: "'DM Sans',sans-serif" }}>{sub}</div>}
       </div>
     </div>
   );
@@ -199,6 +239,7 @@ function EditableCell({ value, onChange, onBlur, placeholder = "0.00", prefix = 
           onChange={e => setLocal(e.target.value)}
           onBlur={commit}
           onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setEditing(false); setLocal(value); } }}
+          className="pr-edit-input"
           style={{
             width: 80, padding: "4px 7px",
             border: "1.5px solid #1557b0", borderRadius: 7,
@@ -219,6 +260,7 @@ function EditableCell({ value, onChange, onBlur, placeholder = "0.00", prefix = 
     <div
       onClick={() => setEditing(true)}
       title="Click to edit"
+      className="pr-editable-cell"
       style={{
         display: "inline-flex", alignItems: "center", gap: 5,
         cursor: "pointer", borderRadius: 7,
@@ -306,6 +348,7 @@ function DeductionCell({ value, reason, onSave, placeholder = "Add deduction", p
       <div
         onClick={() => setOpen(true)}
         title="Click to set deduction"
+        className="pr-editable-cell"
         style={{
           display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
           padding: "5px 9px", borderRadius: 8, minWidth: 72,
@@ -336,6 +379,7 @@ function DeductionCell({ value, reason, onSave, placeholder = "Add deduction", p
       {open && (
         <div
           ref={popoverRef}
+          className="pr-popover"
           style={{
             position: "absolute", zIndex: 9999, right: 0, top: "calc(100% + 6px)",
             background: "#fff", borderRadius: 12,
@@ -453,7 +497,7 @@ function AttBar({ attended, total }) {
   const pct = Math.min(100, (attended / total) * 100);
   const color = pct >= 90 ? "#16a34a" : pct >= 70 ? "#f59e0b" : "#dc2626";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 100 }}>
+    <div className="pr-att-bar" style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 100 }}>
       <div style={{ flex: 1, height: 5, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 99, transition: "width 0.6s" }} />
       </div>
@@ -473,7 +517,7 @@ function ZigRateModal({ currentRate, onClose, onSave }) {
       style={{ position: "fixed", inset: 0, background: "rgba(10,26,80,0.52)", zIndex: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 400, boxShadow: "0 28px 72px rgba(0,0,0,0.18)", overflow: "hidden" }}>
+      <div className="pr-modal" style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 400, boxShadow: "0 28px 72px rgba(0,0,0,0.18)", overflow: "hidden", maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ background: "linear-gradient(135deg,#0a2a5e,#1557b0)", padding: "18px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <span style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, color: "#fff" }}>Set ZiG Exchange Rate</span>
@@ -486,7 +530,7 @@ function ZigRateModal({ currentRate, onClose, onSave }) {
         <div style={{ padding: 24 }}>
           <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
             <div style={{ fontSize: 12, color: "#92400e", fontFamily: "'DM Sans',sans-serif", lineHeight: 1.55 }}>
-              <strong>Note:</strong> The ZiG exchange rate fluctuates daily. Enter today's rate to convert employee salaries from USD to ZiG. This rate is not stored permanently and must be re-entered each session.
+              <strong>Note:</strong> The ZiG exchange rate fluctuates daily. Enter today's rate to convert employee salaries from USD to ZiG. It stays applied for the rest of today and resets automatically tomorrow, when you'll be asked to set a fresh rate.
             </div>
           </div>
           <label style={{ display: "block", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.7, color: "#64748b", marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>
@@ -507,7 +551,7 @@ function ZigRateModal({ currentRate, onClose, onSave }) {
               autoFocus
               onFocus={e => { e.target.style.borderColor = "#1557b0"; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
               onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.boxShadow = "none"; }}
-              onKeyDown={e => { if (e.key === "Enter" && rate && parseFloat(rate) > 0) { onSave(rate); onClose(); } }}
+              onKeyDown={e => { if (e.key === "Enter" && rate && parseFloat(rate) > 0) { onSave(rate); } }}
             />
             <span style={{ position: "absolute", right: 13, top: "50%", transform: "translateY(-50%)", fontSize: 12, fontWeight: 700, color: "#64748b", pointerEvents: "none", fontFamily: "'DM Sans',sans-serif" }}>
               ZiG
@@ -523,7 +567,7 @@ function ZigRateModal({ currentRate, onClose, onSave }) {
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 22 }}>
             <button onClick={onClose} style={{ padding: "10px 22px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#f1f5f9", color: "#0f172a", fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Cancel</button>
             <button
-              onClick={() => { if (rate && parseFloat(rate) > 0) { onSave(rate); onClose(); } }}
+              onClick={() => { if (rate && parseFloat(rate) > 0) { onSave(rate); } }}
               disabled={!rate || parseFloat(rate) <= 0}
               style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#0a2a5e,#1557b0)", color: "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 600, cursor: (!rate || parseFloat(rate) <= 0) ? "not-allowed" : "pointer", opacity: (!rate || parseFloat(rate) <= 0) ? 0.5 : 1 }}
             >
@@ -651,7 +695,7 @@ export default function HRPayrollPage({ showToast }) {
 
   // ── Currency state ────────────────────────────────────────────────────────
   const [currency, setCurrency] = useState("USD");
-  const [zigRate,  setZigRate]  = useState("");
+  const [zigRate,  setZigRate]  = useState(() => loadTodaysZigRate() || "");
   const [showZigModal, setShowZigModal] = useState(false);
 
   const handleCurrencyChange = (val) => {
@@ -846,25 +890,94 @@ export default function HRPayrollPage({ showToast }) {
       <style>{`
         @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ============================================================
+           RESPONSIVE LAYER — targets "medium/small laptop" viewports.
+           These are screens too wide to count as mobile (so mobile
+           media queries never fire) but too short/cramped for the
+           desktop sizing to breathe — e.g. 1024x600, 1152x648, 1280x720
+           at 100% browser zoom. Everything below only overrides size,
+           spacing and wrapping; colors/behavior are untouched.
+           All rules use !important because the base styles above are
+           inline and normally win over any stylesheet.
+        ============================================================ */
+
+        /* --- Tier 1: narrower widths (~<=1180px), e.g. 1024/1152 wide laptops --- */
+        @media (max-width: 1180px) {
+          .pr-page-wrap { gap: 16px !important; }
+
+          .pr-header-row { gap: 10px !important; }
+          .pr-header-title { font-size: 18px !important; }
+          .pr-header-date { font-size: 11px !important; }
+
+          .pr-toolbar { gap: 8px !important; }
+          .pr-currency-box { padding: 6px 10px !important; gap: 6px !important; }
+          .pr-currency-box span { font-size: 10px !important; }
+          .pr-currency-toggle button { padding: 4px 9px !important; font-size: 11px !important; }
+          .pr-rate-btn { padding: 4px 8px !important; font-size: 10px !important; }
+          .pr-toolbar-btn { padding: 7px 12px !important; font-size: 12px !important; }
+
+          .pr-month-nav { gap: 10px !important; }
+          .pr-month-nav-arrow { width: 30px !important; height: 30px !important; }
+          .pr-month-label { font-size: 16px !important; }
+          .pr-month-sub { font-size: 10px !important; }
+
+          .pr-stat-row { gap: 10px !important; justify-content: center !important; }
+          .pr-stat-card { padding: 12px 14px !important; gap: 10px !important; min-width: 130px !important; }
+          .pr-stat-icon { width: 36px !important; height: 36px !important; border-radius: 10px !important; }
+          .pr-stat-icon svg { width: 16px !important; height: 16px !important; }
+          .pr-stat-label { font-size: 9.5px !important; }
+          .pr-stat-value { font-size: 16px !important; }
+          .pr-stat-sub { font-size: 10px !important; }
+
+          .pr-filters { padding: 12px 14px 10px !important; gap: 8px !important; }
+          .pr-filters input, .pr-filters select { padding: 7px 10px !important; font-size: 12px !important; }
+          .pr-filters select { flex: 0 1 130px !important; }
+          .pr-info-bar { padding: 8px 14px !important; font-size: 11px !important; }
+
+          .pr-table { font-size: 11.5px !important; }
+          .pr-table th { padding: 8px 10px !important; font-size: 9px !important; }
+          .pr-table td { padding: 8px 10px !important; }
+          .pr-final-pay { font-size: 13px !important; }
+          .pr-att-bar { min-width: 80px !important; gap: 5px !important; }
+        }
+
+        /* --- Tier 2: short viewports, e.g. 1024x600 laptops at 100% zoom --- */
+        @media (max-height: 700px) {
+          .pr-page-wrap { gap: 12px !important; }
+          .pr-stat-card { padding: 10px 12px !important; }
+          .pr-stat-value { font-size: 15px !important; }
+          .pr-month-nav { margin: 2px 0 !important; }
+          .pr-filters { padding: 10px 14px 8px !important; }
+          .pr-table th, .pr-table td { padding: 6px 9px !important; }
+        }
+
+        /* --- Tier 3: very tight combo (narrow AND short) --- */
+        @media (max-width: 1180px) and (max-height: 700px) {
+          .pr-header-title { font-size: 16px !important; }
+          .pr-stat-row { flex-wrap: nowrap !important; overflow-x: auto !important; }
+          .pr-stat-card { flex: 0 0 auto !important; min-width: 150px !important; }
+          .pr-toolbar { flex-wrap: wrap !important; justify-content: flex-end !important; }
+        }
       `}</style>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 22, animation: "fadeInUp 0.3s ease" }}>
+      <div className="pr-page-wrap" style={{ display: "flex", flexDirection: "column", gap: 22, animation: "fadeInUp 0.3s ease" }}>
 
         {/* ── Header ── */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div className="pr-header-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#0a2a5e", fontFamily: "'Playfair Display',serif" }}>
+            <h1 className="pr-header-title" style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#0a2a5e", fontFamily: "'Playfair Display',serif" }}>
               Payroll
             </h1>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 3, fontFamily: "'DM Sans',sans-serif" }}>{today}</div>
+            <div className="pr-header-date" style={{ fontSize: 12, color: "#94a3b8", marginTop: 3, fontFamily: "'DM Sans',sans-serif" }}>{today}</div>
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div className="pr-toolbar" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
 
             {/* ── Currency switcher ── */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10 }}>
+            <div className="pr-currency-box" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.6px", fontFamily: "'DM Sans',sans-serif" }}>Currency</span>
-              <div style={{ display: "flex", borderRadius: 7, overflow: "hidden", border: "1px solid #e2e8f0" }}>
+              <div className="pr-currency-toggle" style={{ display: "flex", borderRadius: 7, overflow: "hidden", border: "1px solid #e2e8f0" }}>
                 {["USD", "ZIG"].map(curr => (
                   <button
                     key={curr}
@@ -883,6 +996,7 @@ export default function HRPayrollPage({ showToast }) {
               </div>
               {currency === "ZIG" && (
                 <button
+                  className="pr-rate-btn"
                   onClick={() => setShowZigModal(true)}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
@@ -902,6 +1016,7 @@ export default function HRPayrollPage({ showToast }) {
 
             {/* ── View Payslips ── */}
             <button
+              className="pr-toolbar-btn"
               onClick={goToPayslips}
               style={{
                 display: "flex", alignItems: "center", gap: 8,
@@ -924,6 +1039,7 @@ export default function HRPayrollPage({ showToast }) {
             {/* ── Download ── */}
             <div style={{ position: "relative" }} ref={dlRef}>
               <button
+                className="pr-toolbar-btn"
                 onClick={() => setDownloadOpen(v => !v)}
                 style={{
                   display: "flex", alignItems: "center", gap: 8,
@@ -976,11 +1092,12 @@ export default function HRPayrollPage({ showToast }) {
         </div>
 
         {/* ── Month navigator ── */}
-        <div style={{
+        <div className="pr-month-nav" style={{
           display: "flex", alignItems: "center", justifyContent: "center",
           gap: 16,
         }}>
           <button
+            className="pr-month-nav-arrow"
             onClick={goBack}
             style={{
               width: 36, height: 36, borderRadius: 9,
@@ -996,10 +1113,10 @@ export default function HRPayrollPage({ showToast }) {
           </button>
 
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: "#0a2a5e" }}>
+            <div className="pr-month-label" style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: "#0a2a5e" }}>
               {monthLabel}
             </div>
-            <div style={{ fontSize: 11, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", marginTop: 2 }}>
+            <div className="pr-month-sub" style={{ fontSize: 11, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", marginTop: 2 }}>
               {workingDays} working days · excl. weekends & ZW holidays
               {isCurrentMonth && (
                 <span style={{ marginLeft: 6, background: "#dcfce7", color: "#166534", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>
@@ -1010,6 +1127,7 @@ export default function HRPayrollPage({ showToast }) {
           </div>
 
           <button
+            className="pr-month-nav-arrow"
             onClick={goForward}
             disabled={isAtLatest}
             style={{
@@ -1050,7 +1168,7 @@ export default function HRPayrollPage({ showToast }) {
         )}
 
         {/* ── Stat cards ── */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+        <div className="pr-stat-row" style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
           <StatCard
             label="Total Final Payable"
             value={fmtAmount(totalNetPayable, currency, zigRate)}
@@ -1080,7 +1198,7 @@ export default function HRPayrollPage({ showToast }) {
           boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden",
         }}>
           {/* Filters */}
-          <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div className="pr-filters" style={{ padding: "18px 20px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             {/* Search */}
             <div style={{ position: "relative", flex: "1 1 220px" }}>
               <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
@@ -1124,7 +1242,7 @@ export default function HRPayrollPage({ showToast }) {
           </div>
 
           {/* Info bar */}
-          <div style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6, background: "#fafbff" }}>
+          <div className="pr-info-bar" style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6, background: "#fafbff" }}>
             <div style={{ fontSize: 12, color: "#1557b0", fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
               📅 {monthLabel} — {workingDays} working days
               {currency === "ZIG" && zigRate && (
@@ -1139,8 +1257,8 @@ export default function HRPayrollPage({ showToast }) {
           </div>
 
           {/* Table */}
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'DM Sans',sans-serif", fontSize: 13 }}>
+          <div className="pr-table-wrap" style={{ overflowX: "auto" }}>
+            <table className="pr-table" style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'DM Sans',sans-serif", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#fafbff", borderBottom: "1.5px solid #e2e8f0" }}>
                   {[
@@ -1264,7 +1382,7 @@ export default function HRPayrollPage({ showToast }) {
 
                       {/* Final Pay */}
                       <td style={{ padding: "11px 14px", textAlign: "right", whiteSpace: "nowrap" }}>
-                        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, color: payColor }}>
+                        <div className="pr-final-pay" style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, color: payColor }}>
                           {emp.finalPay > 0
                             ? fmtV(emp.finalPay)
                             : <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 400, color: "#cbd5e1" }}>—</span>
@@ -1339,7 +1457,9 @@ export default function HRPayrollPage({ showToast }) {
           }}
           onSave={rate => {
             setZigRate(rate);
+            saveTodaysZigRate(rate);
             setCurrency("ZIG");
+            setShowZigModal(false);
           }}
         />
       )}
