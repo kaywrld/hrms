@@ -874,9 +874,19 @@ function RegisterMarkingView({ employees, departments, onBack, showToast }) {
         });
         setSiteDraft(prev => {
           const next = { ...prev };
+          // 1. Whatever was actually marked most often this month wins first —
+          //    it reflects a genuine in-month reassignment.
           Object.entries(siteCounts).forEach(([empId, counts]) => {
             if (next[empId] !== undefined) return; // don't clobber a manual edit
             next[empId] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+          });
+          // 2. Otherwise, fall back to the employee's assigned Site (from the
+          //    Employees page) as the starting point — still just a default
+          //    for this register; typing over it doesn't change their
+          //    permanent assignment.
+          (employees || []).forEach(emp => {
+            if (next[emp.id] !== undefined) return;
+            if (emp.site_name) next[emp.id] = emp.site_name;
           });
           return next;
         });
@@ -884,7 +894,7 @@ function RegisterMarkingView({ employees, departments, onBack, showToast }) {
       .catch(() => showToast?.("Failed to load existing attendance.", "err"))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [monthStart, monthEnd]);
+  }, [monthStart, monthEnd, employees]);
 
   const activeEmployees = useMemo(() => (employees || []).filter(e => e.status === "employed"), [employees]);
 

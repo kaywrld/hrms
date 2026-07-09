@@ -13,6 +13,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { apiFetch, getToken, refreshToken, notifyModalOpen, notifyModalClose } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
+import EmployeeDetailView from "./EmployeeDetailView";
+import { ZW_BANKS } from "../../utils/banks";
 
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
@@ -429,7 +431,37 @@ function PhoneField({ dialCode, onDialCodeChange, localNumber, onLocalNumberChan
 // ── Add / Edit Employee Modal ─────────────────────────────────────────────
 // allEmployees is the full local list used as a fast first-pass duplicate check.
 // A live API call on National ID blur is the authoritative check.
-function EmployeeFormModal({ employee, departments, existingNumbers, allEmployees, onClose, onSave, showToast }) {
+// Zimbabwean commercial banks list now lives in ../../utils/banks so the Edit
+// Employee modal (HRPortal.jsx) can share the exact same options.
+
+export function BankNameSelect({ value, onChange }) {
+  // "Other" lets the user type a name that isn't in the standard list,
+  // without losing the value if the field is later re-rendered.
+  const isKnown = value === "" || ZW_BANKS.includes(value);
+  const [showOther, setShowOther] = useState(!isKnown);
+
+  return (
+    <>
+      <FSelect
+        value={showOther ? "__other__" : value}
+        onChange={v => {
+          if (v === "__other__") { setShowOther(true); onChange(""); return; }
+          setShowOther(false);
+          onChange(v);
+        }}
+        placeholder="Select bank"
+        options={[...ZW_BANKS.map(b => ({ value: b, label: b })), { value: "__other__", label: "Other…" }]}
+      />
+      {showOther && (
+        <div style={{ marginTop: 8 }}>
+          <FInput value={value} onChange={onChange} placeholder="Enter bank name" />
+        </div>
+      )}
+    </>
+  );
+}
+
+function EmployeeFormModal({ employee, departments, sites, existingNumbers, allEmployees, onClose, onSave, showToast }) {
   const isEdit = !!employee;
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(0);
@@ -482,6 +514,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
     nok_address:      employee?.nok_address      || "",
     employee_number:  employee?.employee_number  || generateEmployeeNumber(existingNumbers),
     department:       employee?.department        || "",
+    site:             employee?.site               || "",
     job_title:        employee?.job_title         || "",
     date_joined:      employee?.date_joined       || "",
     employment_type:  employee?.employment_type   || "",
@@ -557,7 +590,13 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
     if (s === 0) {
       const req = ["first_name", "last_name", "date_of_birth", "national_id", "gender", "address"];
       for (const k of req) {
-        if (!form[k]) { showToast(`${k.replace(/_/g, " ")} is required.`, "err"); return false; }
+        if (!form[k]) {
+          const msg = k === "date_of_birth"
+            ? "Date of Birth is required — please pick a date using the date field (it may look filled in but not actually be selected yet)."
+            : `${k.replace(/_/g, " ")} is required.`;
+          showToast(msg, "err");
+          return false;
+        }
       }
 
       // Minimum age check — employee must be at least 18 years old
@@ -664,7 +703,9 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
       });
 
       if (!form.date_joined) {
-        const fallback = form.contract_start || new Date().toISOString().slice(0, 10);
+        const today = new Date();
+        const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+        const fallback = form.contract_start || localToday;
         fd.set("date_joined", fallback);
       }
 
@@ -794,7 +835,16 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
                 const maxDob = (() => {
                   const d = new Date();
                   d.setFullYear(d.getFullYear() - 18);
-                  return d.toISOString().slice(0, 10);
+                  // Build the ISO string from LOCAL date parts (not toISOString,
+                  // which converts to UTC and can shift the date back by a day
+                  // for timezones ahead of UTC — e.g. Zimbabwe, UTC+2 — silently
+                  // making the `max` attribute one day too strict and causing
+                  // the browser to reject an otherwise-valid, correctly-typed
+                  // date of birth without any visible error).
+                  const yyyy = d.getFullYear();
+                  const mm = String(d.getMonth() + 1).padStart(2, "0");
+                  const dd = String(d.getDate()).padStart(2, "0");
+                  return `${yyyy}-${mm}-${dd}`;
                 })();
                 const dobAge = form.date_of_birth ? (() => {
                   const dob = new Date(form.date_of_birth);
@@ -924,6 +974,10 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
             <FSelect value={String(form.department)} onChange={set("department")} placeholder="Select department"
               options={(departments || []).map(d => ({ value: String(d.id), label: d.name }))} />
           </FField>
+          <FField label="Site">
+            <FSelect value={String(form.site)} onChange={set("site")} placeholder="Select site"
+              options={(sites || []).map(s => ({ value: String(s.id), label: s.name }))} />
+          </FField>
           <FField label="Employment Type *">
             <FSelect value={form.employment_type} onChange={set("employment_type")} placeholder="Select type"
               options={[
@@ -1006,7 +1060,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
             </div>
             <div className="emp-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
               <FField label="Bank Name">
-                <FInput value={form.bank_name_usd} onChange={set("bank_name_usd")} placeholder="e.g. CBZ Bank" />
+                <BankNameSelect value={form.bank_name_usd} onChange={set("bank_name_usd")} />
               </FField>
               <FField label="Account Number">
                 <FInput value={form.bank_account_usd} onChange={set("bank_account_usd")} placeholder="e.g. 1234567890" />
@@ -1022,7 +1076,7 @@ function EmployeeFormModal({ employee, departments, existingNumbers, allEmployee
             </div>
             <div className="emp-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
               <FField label="Bank Name">
-                <FInput value={form.bank_name_zig} onChange={set("bank_name_zig")} placeholder="e.g. Steward Bank" />
+                <BankNameSelect value={form.bank_name_zig} onChange={set("bank_name_zig")} />
               </FField>
               <FField label="Account Number">
                 <FInput value={form.bank_account_zig} onChange={set("bank_account_zig")} placeholder="e.g. 0987654321" />
@@ -1259,12 +1313,422 @@ function downloadPDF(rows, monthLabel) {
   setTimeout(() => { win.print(); }, 500);
 }
 
+// ── Bulk Import: skipped-rows table (shared by preview + final result) ────────
+function SkippedRowsTable({ skipped }) {
+  if (!skipped || skipped.length === 0) return null;
+  return (
+    <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid #fecaca", borderRadius: 10 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'DM Sans',sans-serif", fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: "#fef2f2" }}>
+            <th style={{ position: "sticky", top: 0, background: "#fef2f2", padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", letterSpacing: 0.6 }}>Sheet</th>
+            <th style={{ position: "sticky", top: 0, background: "#fef2f2", padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", letterSpacing: 0.6 }}>Row</th>
+            <th style={{ position: "sticky", top: 0, background: "#fef2f2", padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", letterSpacing: 0.6 }}>Name</th>
+            <th style={{ position: "sticky", top: 0, background: "#fef2f2", padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", letterSpacing: 0.6 }}>Reason Not Added</th>
+          </tr>
+        </thead>
+        <tbody>
+          {skipped.map((s, i) => (
+            <tr key={i} style={{ borderTop: "1px solid #fee2e2" }}>
+              <td style={{ padding: "8px 12px", color: "#7f1d1d", whiteSpace: "nowrap", verticalAlign: "top" }}>{s.sheet || "—"}</td>
+              <td style={{ padding: "8px 12px", color: "#7f1d1d", whiteSpace: "nowrap", verticalAlign: "top" }}>#{s.row}</td>
+              <td style={{ padding: "8px 12px", color: "#7f1d1d", whiteSpace: "nowrap", verticalAlign: "top" }}>{s.name}</td>
+              <td style={{ padding: "8px 12px", color: "#7f1d1d" }}>{s.reason}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Bulk Import: department/site breakdown table (preview + result) ──────────
+function BreakdownTable({ title, rows }) {
+  if (!rows || rows.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>
+        {title}
+      </div>
+      <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'DM Sans',sans-serif", fontSize: 12.5 }}>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} style={{ borderTop: i === 0 ? "none" : "1px solid #f1f5f9" }}>
+                <td style={{ padding: "8px 12px", color: "#334155", fontWeight: 500 }}>
+                  {r.name}
+                  {r.is_new && (
+                    <span style={{
+                      marginLeft: 8, fontSize: 9.5, fontWeight: 700, color: "#166534",
+                      background: "#dcfce7", padding: "2px 7px", borderRadius: 999, letterSpacing: 0.3,
+                    }}>NEW</span>
+                  )}
+                </td>
+                <td style={{ padding: "8px 12px", color: "#64748b", textAlign: "right", whiteSpace: "nowrap" }}>
+                  {r.count} employee{r.count === 1 ? "" : "s"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function BulkImportModal({ onClose, onImported, showToast }) {
+  const [file, setFile]         = useState(null);
+  const [busy, setBusy]         = useState(false);
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [preview, setPreview]   = useState(null); // stats summary returned before committing
+  const [result, setResult]     = useState(null); // { total_rows, created, skipped_count, skipped } after confirm
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef();
+
+  const pickFile = (f) => {
+    if (!f) return;
+    const okExt = /\.(xlsx|xls|csv)$/i.test(f.name);
+    if (!okExt) { showToast("Please choose a .xlsx or .csv file.", "err"); return; }
+    setFile(f);
+    setPreview(null);
+    setResult(null);
+  };
+
+  const downloadTemplate = async () => {
+    setTemplateBusy(true);
+    try {
+      let token = getToken();
+      let res = await fetch(`${API}/employees/bulk-import/template/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        token = await refreshToken();
+        if (!token) return;
+        res = await fetch(`${API}/employees/bulk-import/template/`, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      if (!res.ok) { showToast("Could not download the template.", "err"); return; }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url; a.download = "employee_import_template.xlsx";
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast("Could not download the template.", "err");
+    } finally {
+      setTemplateBusy(false);
+    }
+  };
+
+  // Shared POST helper — confirm=false runs a dry-run preview (nothing is
+  // written to the database), confirm=true actually performs the import.
+  const postImport = async (confirm) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (confirm) fd.append("confirm", "true");
+
+    let token = getToken();
+    let res = await fetch(`${API}/employees/bulk-import/`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+    if (res.status === 401) {
+      token = await refreshToken();
+      if (!token) return null;
+      res = await fetch(`${API}/employees/bulk-import/`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || "Failed to process the file.", "err");
+      return null;
+    }
+    return data;
+  };
+
+  // Step 1: review — parses & validates the file, shows a statistics
+  // summary (departments/sites breakdown, valid vs skipped rows), but
+  // does NOT touch the database yet.
+  const handleReview = async () => {
+    if (!file) { showToast("Please choose a file first.", "err"); return; }
+    setBusy(true);
+    setPreview(null);
+    setResult(null);
+    try {
+      const data = await postImport(false);
+      if (!data) return;
+      setPreview(data);
+      if (data.created === 0) {
+        showToast("No valid employees found in this file — see the details below.", "err");
+      }
+    } catch {
+      showToast("Failed to read the file.", "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Step 2: confirm — re-submits the same file with confirm=true to
+  // actually create the employees (and any new departments/sites).
+  const handleConfirm = async () => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const data = await postImport(true);
+      if (!data) return;
+      setResult(data);
+      if (data.created > 0) {
+        onImported();
+        showToast(`${data.created} of ${data.total_rows} employee(s) imported successfully.`, "ok");
+      } else {
+        showToast("No employees were imported — see the details below.", "err");
+      }
+    } catch {
+      showToast("Failed to import employees.", "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="Import Employees from Excel" onClose={onClose} maxWidth={660}>
+      <div style={{ fontSize: 13, color: "#475569", fontFamily: "'DM Sans',sans-serif", lineHeight: 1.6, marginBottom: 16 }}>
+        Upload a spreadsheet to add many employees at once — on top of whoever's already in the system. Every employee field is supported <strong>except profile pictures and document uploads</strong> (CV, education certificate) — those are still added per-employee afterwards. If your file has multiple sheet tabs, each tab's name is used as a <strong>Site</strong> (e.g. a tab named "Bindura" creates a "Bindura" site automatically and assigns everyone on that tab to it); unmatched <strong>Department</strong> names are auto-created the same way. A <strong>Bank Name</strong> / <strong>Account Number</strong> column is saved as each employee's USD banking details — bank names are matched loosely (e.g. "NMB" becomes "NMB Bank"), so they don't need to match a dropdown exactly. After choosing a file, review the summary — nothing is added until you confirm.
+      </div>
+
+      <button
+        onClick={downloadTemplate}
+        disabled={templateBusy}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 18,
+          padding: "9px 16px", borderRadius: 9, border: "1.5px solid #e2e8f0",
+          background: "#fafbff", fontSize: 12.5, fontWeight: 600, color: "#1557b0",
+          fontFamily: "'DM Sans',sans-serif", cursor: templateBusy ? "wait" : "pointer",
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        {templateBusy ? "Preparing…" : "Download Excel Template"}
+      </button>
+
+      <div
+        onClick={() => fileRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); pickFile(e.dataTransfer.files?.[0]); }}
+        style={{
+          border: `2px dashed ${file ? "#86efac" : dragOver ? "#1557b0" : "#cbd5e1"}`,
+          borderRadius: 12, padding: "28px 20px",
+          textAlign: "center", cursor: "pointer",
+          background: file ? "#f0fdf4" : dragOver ? "#eff6ff" : "#fafbff",
+          transition: "border-color 0.15s, background 0.15s",
+        }}
+      >
+        <input
+          ref={fileRef} type="file" accept=".xlsx,.xls,.csv"
+          style={{ display: "none" }}
+          onChange={e => pickFile(e.target.files?.[0])}
+        />
+        {file ? (
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#166534", fontFamily: "'DM Sans',sans-serif" }}>
+            📄 {file.name}
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: "#64748b", fontFamily: "'DM Sans',sans-serif" }}>
+            Click to choose, or drag &amp; drop a .xlsx or .csv file
+          </div>
+        )}
+      </div>
+
+      {/* ── Step 2: Review summary (preview — nothing saved yet) ── */}
+      {preview && !result && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ display: "flex", gap: 14, marginBottom: 16, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 130, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#166534", fontFamily: "'Playfair Display',serif" }}>{preview.valid_count}</div>
+              <div style={{ fontSize: 11, color: "#166534", fontFamily: "'DM Sans',sans-serif" }}>Ready to Add</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 130, background: preview.skipped_count ? "#fef2f2" : "#f8fafc", border: `1px solid ${preview.skipped_count ? "#fecaca" : "#e2e8f0"}`, borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: preview.skipped_count ? "#991b1b" : "#94a3b8", fontFamily: "'Playfair Display',serif" }}>{preview.skipped_count}</div>
+              <div style={{ fontSize: 11, color: preview.skipped_count ? "#991b1b" : "#94a3b8", fontFamily: "'DM Sans',sans-serif" }}>Will Be Skipped</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 130, background: "#f8faff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#0a2a5e", fontFamily: "'Playfair Display',serif" }}>{preview.total_rows}</div>
+              <div style={{ fontSize: 11, color: "#64748b", fontFamily: "'DM Sans',sans-serif" }}>Total Rows</div>
+            </div>
+            {preview.with_banking > 0 && (
+              <div style={{ flex: 1, minWidth: 130, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "12px 14px" }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#0891b2", fontFamily: "'Playfair Display',serif" }}>{preview.with_banking}</div>
+                <div style={{ fontSize: 11, color: "#0891b2", fontFamily: "'DM Sans',sans-serif" }}>With Banking Details</div>
+              </div>
+            )}
+          </div>
+
+          {(preview.departments_created?.length > 0 || preview.sites_created?.length > 0) && (
+            <div style={{
+              marginBottom: 16, padding: "10px 14px", borderRadius: 9,
+              background: "#eff6ff", border: "1px solid #bfdbfe",
+              fontSize: 12.5, color: "#1e3a8a", fontFamily: "'DM Sans',sans-serif", lineHeight: 1.7,
+            }}>
+              {preview.departments_created?.length > 0 && (
+                <div><strong>{preview.departments_created.length} new department{preview.departments_created.length > 1 ? "s" : ""} will be created:</strong> {preview.departments_created.join(", ")}</div>
+              )}
+              {preview.sites_created?.length > 0 && (
+                <div><strong>{preview.sites_created.length} new site{preview.sites_created.length > 1 ? "s" : ""} will be created:</strong> {preview.sites_created.join(", ")}</div>
+              )}
+            </div>
+          )}
+
+          <BreakdownTable title="Employees per Department" rows={preview.departments_summary} />
+          <BreakdownTable title="Employees per Site" rows={preview.sites_summary} />
+
+          {preview.sheets_ignored && preview.sheets_ignored.length > 0 && (
+            <div style={{
+              marginBottom: 12, padding: "10px 14px", borderRadius: 9,
+              background: "#fffbeb", border: "1px solid #fde68a",
+              fontSize: 12.5, color: "#92400e", fontFamily: "'DM Sans',sans-serif",
+            }}>
+              <strong>Sheet{preview.sheets_ignored.length > 1 ? "s" : ""} skipped</strong> — no First/Last Name columns found on: {preview.sheets_ignored.join(", ")}
+            </div>
+          )}
+
+          {preview.skipped_count > 0 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>
+                Rows That Will Be Skipped
+              </div>
+              <SkippedRowsTable skipped={preview.skipped} />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 3: Final result (after confirming) ── */}
+      {result && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 130, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#166534", fontFamily: "'Playfair Display',serif" }}>{result.created}</div>
+              <div style={{ fontSize: 11, color: "#166534", fontFamily: "'DM Sans',sans-serif" }}>Added</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 130, background: result.skipped_count ? "#fef2f2" : "#f8fafc", border: `1px solid ${result.skipped_count ? "#fecaca" : "#e2e8f0"}`, borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: result.skipped_count ? "#991b1b" : "#94a3b8", fontFamily: "'Playfair Display',serif" }}>{result.skipped_count}</div>
+              <div style={{ fontSize: 11, color: result.skipped_count ? "#991b1b" : "#94a3b8", fontFamily: "'DM Sans',sans-serif" }}>Skipped</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 130, background: "#f8faff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#0a2a5e", fontFamily: "'Playfair Display',serif" }}>{result.total_rows}</div>
+              <div style={{ fontSize: 11, color: "#64748b", fontFamily: "'DM Sans',sans-serif" }}>Total Rows</div>
+            </div>
+            {result.with_banking > 0 && (
+              <div style={{ flex: 1, minWidth: 130, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "12px 14px" }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#0891b2", fontFamily: "'Playfair Display',serif" }}>{result.with_banking}</div>
+                <div style={{ fontSize: 11, color: "#0891b2", fontFamily: "'DM Sans',sans-serif" }}>With Banking Details</div>
+              </div>
+            )}
+          </div>
+
+          {(result.departments_created?.length > 0 || result.sites_created?.length > 0) && (
+            <div style={{
+              marginBottom: 12, padding: "10px 14px", borderRadius: 9,
+              background: "#eff6ff", border: "1px solid #bfdbfe",
+              fontSize: 12.5, color: "#1e3a8a", fontFamily: "'DM Sans',sans-serif", lineHeight: 1.7,
+            }}>
+              {result.departments_created?.length > 0 && (
+                <div><strong>New department{result.departments_created.length > 1 ? "s" : ""} created:</strong> {result.departments_created.join(", ")}</div>
+              )}
+              {result.sites_created?.length > 0 && (
+                <div><strong>New site{result.sites_created.length > 1 ? "s" : ""} created:</strong> {result.sites_created.join(", ")}</div>
+              )}
+            </div>
+          )}
+
+          {result.sheets_ignored && result.sheets_ignored.length > 0 && (
+            <div style={{
+              marginBottom: 12, padding: "10px 14px", borderRadius: 9,
+              background: "#fffbeb", border: "1px solid #fde68a",
+              fontSize: 12.5, color: "#92400e", fontFamily: "'DM Sans',sans-serif",
+            }}>
+              <strong>Sheet{result.sheets_ignored.length > 1 ? "s" : ""} skipped</strong> — no First/Last Name columns found on: {result.sheets_ignored.join(", ")}
+            </div>
+          )}
+
+          <SkippedRowsTable skipped={result.skipped} />
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 22 }}>
+        {result ? (
+          <button onClick={onClose} style={{
+            padding: "10px 20px", borderRadius: 10, border: "1.5px solid #e2e8f0",
+            background: "#fff", color: "#475569", fontSize: 13, fontWeight: 600,
+            fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
+          }}>
+            Close
+          </button>
+        ) : preview ? (
+          <>
+            <button
+              onClick={() => setPreview(null)}
+              disabled={busy}
+              style={{
+                padding: "10px 20px", borderRadius: 10, border: "1.5px solid #e2e8f0",
+                background: "#fff", color: "#475569", fontSize: 13, fontWeight: 600,
+                fontFamily: "'DM Sans',sans-serif", cursor: busy ? "not-allowed" : "pointer",
+              }}
+            >
+              ← Back
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={busy || preview.valid_count === 0}
+              style={{
+                padding: "10px 22px", borderRadius: 10, border: "none",
+                background: busy || preview.valid_count === 0 ? "#94a3b8" : "linear-gradient(135deg,#0a2a5e,#1557b0)",
+                color: "#fff", fontSize: 13, fontWeight: 600,
+                fontFamily: "'DM Sans',sans-serif", cursor: busy || preview.valid_count === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              {busy ? "Importing…" : `Confirm & Add ${preview.valid_count} Employee${preview.valid_count === 1 ? "" : "s"}`}
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={onClose} style={{
+              padding: "10px 20px", borderRadius: 10, border: "1.5px solid #e2e8f0",
+              background: "#fff", color: "#475569", fontSize: 13, fontWeight: 600,
+              fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
+            }}>
+              Cancel
+            </button>
+            <button
+              onClick={handleReview}
+              disabled={busy || !file}
+              style={{
+                padding: "10px 22px", borderRadius: 10, border: "none",
+                background: busy || !file ? "#94a3b8" : "linear-gradient(135deg,#0a2a5e,#1557b0)",
+                color: "#fff", fontSize: 13, fontWeight: 600,
+                fontFamily: "'DM Sans',sans-serif", cursor: busy || !file ? "not-allowed" : "pointer",
+              }}
+            >
+              {busy ? "Reading File…" : "Review Import"}
+            </button>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
-export default function HREmployeesPage({ showToast, isHRM }) {
+export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
   const {
     employees: ctxEmployees,
     departments: ctxDepartments,
+    sites: ctxSites,
     loading: ctxLoading,
+    refetchEmployees,
+    fetchEmployeeDetail,
   } = useHRPortal();
 
   const [employees,      setEmployees]      = useState(null);
@@ -1274,11 +1738,24 @@ export default function HREmployeesPage({ showToast, isHRM }) {
 
   const [search,       setSearch]       = useState("");
   const [deptFilter,   setDeptFilter]   = useState("all");
-  const [typeFilter,   setTypeFilter]   = useState("all");
+  const [siteFilter,   setSiteFilter]   = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [modal,        setModal]        = useState(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [siteExportBusy, setSiteExportBusy] = useState(false);
   const dlRef = useRef();
+
+  // ── Employee detail panel (same panel used by the HR Dashboard) ────────────
+  const [selectedEmp,   setSelectedEmp]   = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const handleEmpClick = async (emp) => {
+    setLoadingDetail(true);
+    setSelectedEmp(emp); // show partial (list) data immediately
+    const full = await fetchEmployeeDetail(emp.id);
+    if (full) setSelectedEmp(full);
+    setLoadingDetail(false);
+  };
 
   const now = new Date();
   const currentYear  = now.getFullYear();
@@ -1322,7 +1799,34 @@ export default function HREmployeesPage({ showToast, isHRM }) {
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
+  const downloadBySite = async () => {
+    setSiteExportBusy(true);
+    try {
+      let token = getToken();
+      let res = await fetch(`${API}/employees/export-by-site/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        token = await refreshToken();
+        if (!token) return;
+        res = await fetch(`${API}/employees/export-by-site/`, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      if (!res.ok) { showToast("Could not export employees by site.", "err"); return; }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url; a.download = "employees_by_site.xlsx";
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast("Could not export employees by site.", "err");
+    } finally {
+      setSiteExportBusy(false);
+    }
+  };
+
   const departments = ctxDepartments || [];
+  const sites       = ctxSites || [];
 
   const payrollMap = useMemo(() => {
     const m = {};
@@ -1363,11 +1867,11 @@ export default function HREmployeesPage({ showToast, isHRM }) {
         (e.phone_number || "").toLowerCase().includes(q) ||
         (e.job_title || "").toLowerCase().includes(q);
       const matchDept   = deptFilter === "all" || String(e.department) === deptFilter || (e.department_name || "").toLowerCase() === deptFilter.toLowerCase();
-      const matchType   = typeFilter === "all" || e.employment_type === typeFilter;
+      const matchSite   = siteFilter === "all" || String(e.site) === siteFilter || (e.site_name || "").toLowerCase() === siteFilter.toLowerCase();
       const matchStatus = statusFilter === "all" || e.status === statusFilter;
-      return matchSearch && matchDept && matchType && matchStatus;
+      return matchSearch && matchDept && matchSite && matchStatus;
     });
-  }, [enriched, search, deptFilter, typeFilter, statusFilter]);
+  }, [enriched, search, deptFilter, siteFilter, statusFilter]);
 
   const totalWorkers  = enriched.length;
   const totalPayable  = filtered.reduce((s, e) => s + e.amountToBePaid, 0);
@@ -1399,6 +1903,20 @@ export default function HREmployeesPage({ showToast, isHRM }) {
   };
 
   const loading = ctxLoading?.employees || payrollLoading || employees === null;
+
+  // Show employee detail view inline (replaces the Employees list) — same
+  // panel the HR Dashboard uses, but "Back" returns here, not to the dashboard.
+  if (selectedEmp) {
+    return (
+      <EmployeeDetailView
+        emp={selectedEmp}
+        loadingDetail={loadingDetail}
+        backLabel="Back to Employees"
+        onBack={() => setSelectedEmp(null)}
+        onEdit={isHRM && onEditEmployee ? () => onEditEmployee(selectedEmp, setSelectedEmp) : null}
+      />
+    );
+  }
 
   return (
     <>
@@ -1482,6 +2000,7 @@ export default function HREmployeesPage({ showToast, isHRM }) {
                   overflow: "hidden", zIndex: 200,
                 }}>
                   {[
+                    { label: siteExportBusy ? "Preparing…" : "Download by Site (Excel)", icon: "🗂️", action: () => { if (!siteExportBusy) { downloadBySite(); setDownloadOpen(false); } } },
                     { label: "Download as Excel (CSV)", icon: "📊", action: () => { downloadCSV(tableRows, `employees-${monthLabel.replace(/ /g, "-")}.csv`); setDownloadOpen(false); } },
                     { label: "Download as PDF",         icon: "📄", action: () => { downloadPDF(tableRows, monthLabel); setDownloadOpen(false); } },
                   ].map(item => (
@@ -1502,6 +2021,28 @@ export default function HREmployeesPage({ showToast, isHRM }) {
                 </div>
               )}
             </div>
+
+            {/* Import Employees */}
+            {isHRM && (
+              <button
+                onClick={() => setModal("import")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "9px 16px", borderRadius: 10,
+                  border: "1.5px solid #e2e8f0", background: "#fff",
+                  fontSize: 13, fontWeight: 600, color: "#475569",
+                  fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
+                  transition: "border-color 0.15s, color 0.15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "#1557b0"; e.currentTarget.style.color = "#1557b0"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.color = "#475569"; }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Import
+              </button>
+            )}
 
             {/* Add Employee */}
             {isHRM && (
@@ -1586,11 +2127,9 @@ export default function HREmployeesPage({ showToast, isHRM }) {
               {departments.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
             </select>
 
-            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 150px" }}>
-              <option value="all">All Types</option>
-              <option value="full_time">Full-Time</option>
-              <option value="part_time">Part-Time</option>
-              <option value="contract">Contract</option>
+            <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 170px" }}>
+              <option value="all">All Sites</option>
+              {sites.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
             </select>
 
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 150px" }}>
@@ -1651,7 +2190,8 @@ export default function HREmployeesPage({ showToast, isHRM }) {
 
                   return (
                     <tr key={emp.id}
-                      style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#fafcff", transition: "background 0.12s" }}
+                      onClick={() => handleEmpClick(emp)}
+                      style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#fafcff", transition: "background 0.12s", cursor: "pointer" }}
                       onMouseEnter={e => e.currentTarget.style.background = "#eff6ff"}
                       onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "#fff" : "#fafcff"}
                     >
@@ -1719,10 +2259,20 @@ export default function HREmployeesPage({ showToast, isHRM }) {
         </div>
       </div>
 
+      {/* Import Employees modal */}
+      {modal === "import" && (
+        <BulkImportModal
+          onClose={() => setModal(null)}
+          showToast={showToast}
+          onImported={() => { refetchEmployees(); fetchPayrollAndAttendance(); }}
+        />
+      )}
+
       {/* Add Employee modal */}
       {modal === "add" && (
         <EmployeeFormModal
           departments={departments}
+          sites={sites}
           existingNumbers={existingNumbers}
           allEmployees={employees || []}
           onClose={() => setModal(null)}

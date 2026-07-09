@@ -2,7 +2,7 @@ import re
 import imghdr
 from rest_framework import serializers
 from .models import (
-    Department, Employee, AcademicQualification, EmployeeStatusLog,
+    Department, Site, Employee, AcademicQualification, EmployeeStatusLog,
     MAX_IMAGE_BYTES, MAX_DOC_BYTES, MAX_IMAGE_SIZE_MB, MAX_DOC_SIZE_MB,
 )
 
@@ -49,6 +49,12 @@ class DepartmentSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class SiteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = Site
+        fields = '__all__'
+
+
 class AcademicQualificationSerializer(serializers.ModelSerializer):
     class Meta:
         model  = AcademicQualification
@@ -67,6 +73,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     qualifications = AcademicQualificationSerializer(many=True, read_only=True)
     status_logs    = EmployeeStatusLogSerializer(many=True, read_only=True)
     department_name = serializers.CharField(source='department.name', read_only=True)
+    site_name       = serializers.CharField(source='site.name', read_only=True)
 
     class Meta:
         model  = Employee
@@ -132,12 +139,13 @@ class EmployeeSerializer(serializers.ModelSerializer):
 class EmployeeListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for list views"""
     department_name = serializers.CharField(source='department.name', read_only=True)
+    site_name       = serializers.CharField(source='site.name', read_only=True)
 
     class Meta:
         model  = Employee
         fields = (
             'id', 'employee_number', 'first_name', 'last_name', 'middle_name',
-            'job_title', 'department', 'department_name',
+            'job_title', 'department', 'department_name', 'site', 'site_name',
             'gender', 'phone_number', 'email',
             'status', 'profile_picture', 'employment_type',
             'date_joined',

@@ -18,6 +18,16 @@ class Department(models.Model):
         return self.name
 
 
+class Site(models.Model):
+    """A physical work location / site (e.g. a mine site, branch, or client premises)."""
+    name = models.CharField(max_length=120, unique=True)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
 class Employee(models.Model):
     STATUS_CHOICES = [
         ('employed', 'Currently Employed'),
@@ -45,6 +55,7 @@ class Employee(models.Model):
     # Employment Info
     employee_number   = models.CharField(max_length=30, unique=True)
     department        = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, related_name='employees')
+    site              = models.ForeignKey(Site, on_delete=models.SET_NULL, null=True, blank=True, related_name='employees')
     job_title         = models.CharField(max_length=100)
     date_joined       = models.DateField()
     employment_type   = models.CharField(max_length=20, choices=[

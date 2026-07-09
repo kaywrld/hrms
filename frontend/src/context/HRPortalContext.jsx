@@ -12,20 +12,21 @@ export function HRPortalProvider({ children }) {
 
   const [employees,   setEmployees]   = useState(null);
   const [departments, setDepartments] = useState(null);
+  const [sites,       setSites]       = useState(null);
   const [attendance,  setAttendance]  = useState(null);
   const [payroll,     setPayroll]     = useState(null);
 
-  const [loading, setLoading] = useState({ employees: false, departments: false, attendance: false, payroll: false });
-  const [errors,  setErrors]  = useState({ employees: null,  departments: null,  attendance: null,  payroll: null  });
+  const [loading, setLoading] = useState({ employees: false, departments: false, sites: false, attendance: false, payroll: false });
+  const [errors,  setErrors]  = useState({ employees: null,  departments: null,  sites: null,  attendance: null,  payroll: null  });
 
-  const fetching = useRef({ employees: false, departments: false, attendance: false, payroll: false });
+  const fetching = useRef({ employees: false, departments: false, sites: false, attendance: false, payroll: false });
 
   const load = useCallback(async (key, url, transform = (d) => d) => {
     if (fetching.current[key]) return;
     fetching.current[key] = true;
     setLoading((l) => ({ ...l, [key]: true }));
     setErrors((e)  => ({ ...e, [key]: null  }));
-    const setterMap = { employees: setEmployees, departments: setDepartments, attendance: setAttendance, payroll: setPayroll };
+    const setterMap = { employees: setEmployees, departments: setDepartments, sites: setSites, attendance: setAttendance, payroll: setPayroll };
     try {
       const res  = await apiFetch(`${API}${url}`);
       if (!res.ok) throw new Error(`${res.status}`);
@@ -45,6 +46,7 @@ export function HRPortalProvider({ children }) {
   useEffect(() => {
     load("employees",   "/employees/");
     load("departments", "/employees/departments/");
+    load("sites",       "/employees/sites/");
     load("attendance",  `/attendance/?date=${today}`);
   }, [load, today]);
 
@@ -91,6 +93,7 @@ export function HRPortalProvider({ children }) {
 
   const refetchEmployees   = useCallback(() => { setEmployees(null);   fetching.current.employees   = false; load("employees",   "/employees/");   }, [load]);
   const refetchDepartments = useCallback(() => { setDepartments(null); fetching.current.departments = false; load("departments", "/employees/departments/"); }, [load]);
+  const refetchSites       = useCallback(() => { setSites(null);       fetching.current.sites       = false; load("sites",       "/employees/sites/"); }, [load]);
   const refetchAttendance  = useCallback((date = today) => { setAttendance(null); fetching.current.attendance = false; load("attendance", `/attendance/?date=${date}`); }, [load, today]);
   const refetchPayroll     = useCallback(() => { setPayroll(null);     fetching.current.payroll     = false; load("payroll",     "/payroll/");     }, [load]);
 
@@ -105,9 +108,9 @@ export function HRPortalProvider({ children }) {
 
   const value = {
     user, isHRM, isHR,
-    employees, departments, attendance, payroll,
+    employees, departments, sites, attendance, payroll,
     loading, errors,
-    refetchEmployees, refetchDepartments, refetchAttendance, refetchPayroll,
+    refetchEmployees, refetchDepartments, refetchSites, refetchAttendance, refetchPayroll,
     fetchEmployeeDetail,
     addEmployee, updateEmployee, removeEmployee,
     stats, today,
