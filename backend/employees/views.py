@@ -567,6 +567,14 @@ class EmployeeExportBySiteView(APIView):
             .order_by('site__name', 'department__name', 'first_name', 'last_name')
         )
 
+        # Optional filter: ?pay_type=daily | monthly | all (default: all)
+        pay_type = (request.query_params.get('pay_type') or 'all').lower()
+        if pay_type in ('daily', 'monthly'):
+            employees = [
+                emp for emp in employees
+                if getattr(getattr(emp, 'payroll', None), 'pay_type', 'monthly') == pay_type
+            ]
+
         by_site = {}
         for emp in employees:
             site_name = emp.site.name if emp.site else 'Unassigned'
@@ -574,6 +582,22 @@ class EmployeeExportBySiteView(APIView):
 
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
+
+        if not by_site:
+            ws = wb.create_sheet('No Employees')
+            label = {'daily': 'daily-rate', 'monthly': 'monthly-salary'}.get(pay_type, '')
+            ws['A1'] = f'No {label} employees found.'.replace('  ', ' ')
+            ws.column_dimensions['A'].width = 40
+            buf = io.BytesIO()
+            wb.save(buf)
+            buf.seek(0)
+            response = HttpResponse(
+                buf.read(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            filename_suffix = {'daily': 'daily_rate', 'monthly': 'monthly_salary'}.get(pay_type, 'all')
+            response['Content-Disposition'] = f'attachment; filename="employees_by_site_{filename_suffix}.xlsx"'
+            return response
 
         title_font   = Font(name='Times New Roman', bold=True, size=11, underline='single')
         header_font  = Font(name='Times New Roman', bold=True, size=11)
@@ -656,5 +680,6 @@ class EmployeeExportBySiteView(APIView):
             buf.read(),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response['Content-Disposition'] = 'attachment; filename="employees_by_site.xlsx"'
+        filename_suffix = {'daily': 'daily_rate', 'monthly': 'monthly_salary'}.get(pay_type, 'all')
+        response['Content-Disposition'] = f'attachment; filename="employees_by_site_{filename_suffix}.xlsx"'
         return response

@@ -136,9 +136,9 @@ function FInput({ value, onChange, type = "text", placeholder = "", required, re
   );
 }
 
-function FSelect({ value, onChange, options, placeholder }) {
+function FSelect({ value, onChange, options, placeholder, disabled }) {
   return (
-    <select style={{ ...inputStyle, cursor: "pointer" }} value={value} onChange={e => onChange(e.target.value)}>
+    <select style={{ ...inputStyle, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1 }} value={value} onChange={e => onChange(e.target.value)} disabled={disabled}>
       {placeholder && <option value="">{placeholder}</option>}
       {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
@@ -524,6 +524,8 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
     status:           employee?.status            || "employed",
     status_reason:    employee?.status_reason     || "",
     monthly_salary:   employee?.payroll?.basic_salary || employee?.basic_salary || "",
+    pay_type:         employee?.payroll?.pay_type     || "monthly",
+    daily_rate:       employee?.payroll?.daily_rate   || "",
     // ── USD bank account on file ──
     bank_name_usd:    employee?.payroll?.bank_name_usd    || employee?.payroll?.bank_name    || "",
     bank_account_usd: employee?.payroll?.bank_account_usd || employee?.payroll?.bank_account || "",
@@ -532,7 +534,12 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
     bank_account_zig: employee?.payroll?.bank_account_zig || "",
   });
 
-  const set = key => val => setForm(f => ({ ...f, [key]: val }));
+  const set = key => val => setForm(f => {
+    if (key === "pay_type" && val === "daily") {
+      return { ...f, pay_type: val, employment_type: "contract" };
+    }
+    return { ...f, [key]: val };
+  });
 
   const salary = parseFloat(form.monthly_salary);
   const dailyRate = (!isNaN(salary) && salary > 0 && workingDaysThisMonth > 0)
@@ -659,6 +666,18 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
     }
 
     if (s === 1) {
+      if (form.pay_type === "daily") {
+        if (!form.daily_rate || isNaN(parseFloat(form.daily_rate)) || parseFloat(form.daily_rate) <= 0) {
+          showToast("Daily rate is required.", "err"); return false;
+        }
+      } else {
+        if (!form.monthly_salary || isNaN(parseFloat(form.monthly_salary)) || parseFloat(form.monthly_salary) <= 0) {
+          showToast("Monthly salary is required.", "err"); return false;
+        }
+      }
+    }
+
+    if (s === 2) {
       const req = ["employee_number", "job_title", "employment_type", "status"];
       for (const k of req) {
         if (!form[k]) { showToast(`${k.replace(/_/g, " ")} is required.`, "err"); return false; }
@@ -668,12 +687,6 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
         if (!form.contract_end)   { showToast("Contract end date is required.", "err"); return false; }
       } else {
         if (!form.date_joined) { showToast("Started work at date is required.", "err"); return false; }
-      }
-    }
-
-    if (s === 2) {
-      if (!form.monthly_salary || isNaN(parseFloat(form.monthly_salary)) || parseFloat(form.monthly_salary) <= 0) {
-        showToast("Monthly salary is required.", "err"); return false;
       }
     }
 
@@ -694,7 +707,7 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
     try {
       const fullPhone = dialCode + localNumber.replace(/\s/g, "");
       const fd = new FormData();
-      const skipKeys = new Set(["monthly_salary", "bank_name_usd", "bank_account_usd", "bank_name_zig", "bank_account_zig"]);
+      const skipKeys = new Set(["monthly_salary", "pay_type", "daily_rate", "bank_name_usd", "bank_account_usd", "bank_name_zig", "bank_account_zig"]);
       Object.entries(form).forEach(([k, v]) => {
         if (skipKeys.has(k)) return;
         if (k === "phone_number") { fd.append("phone_number", fullPhone); return; }
@@ -737,7 +750,9 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
       try {
         const prBody = JSON.stringify({
           employee: saved.id,
-          basic_salary: parseFloat(form.monthly_salary),
+          pay_type: form.pay_type,
+          basic_salary: form.pay_type === "daily" ? null : parseFloat(form.monthly_salary),
+          daily_rate:   form.pay_type === "daily" ? parseFloat(form.daily_rate) : null,
           allowances: 0, deductions: 0,
           // ── USD bank account on file ──
           bank_name_usd:    form.bank_name_usd    || "",
@@ -751,10 +766,12 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
         if (!prResPatch.ok) {
           await apiFetch(`${API}/payroll/`, { method: "POST", body: prBody });
         }
-      } catch (_) { /* payroll save is best-effort */ }
+      } catch (_) {
+        showToast("Employee saved, but payroll/banking details failed to save.", "err");
+      }
 
       showToast(isEdit ? "Employee updated successfully." : "Employee added successfully.");
-      onSave({ ...saved, basic_salary: parseFloat(form.monthly_salary) });
+      onSave({ ...saved, pay_type: form.pay_type, basic_salary: form.pay_type === "daily" ? null : parseFloat(form.monthly_salary), daily_rate: form.pay_type === "daily" ? parseFloat(form.daily_rate) : null });
       onClose();
     } catch (e) {
       showToast("An error occurred. Please try again.", "err");
@@ -766,8 +783,8 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
   // ── Step metadata ────────────────────────────────────────────────────────
   const steps = [
     { label: "Personal Info",  icon: "👤" },
-    { label: "Employment",     icon: "💼" },
     { label: "Salary",         icon: "💰" },
+    { label: "Employment",     icon: "💼" },
     { label: "Next of Kin",    icon: "👨‍👩‍👧" },
     { label: "Documents",      icon: "📄", badge: docCount > 0 ? docCount : null },
   ];
@@ -965,75 +982,69 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
         </>
       )}
 
-      {/* ── Step 1: Employment ── */}
+      {/* ── Step 1: Salary & Banking ── */}
       {step === 1 && (
-        <div className="emp-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-          <FField label="Employee Number *"><FInput value={form.employee_number} onChange={set("employee_number")} /></FField>
-          <FField label="Job Title *"><FInput value={form.job_title} onChange={set("job_title")} placeholder="e.g. Site Engineer" /></FField>
-          <FField label="Department">
-            <FSelect value={String(form.department)} onChange={set("department")} placeholder="Select department"
-              options={(departments || []).map(d => ({ value: String(d.id), label: d.name }))} />
-          </FField>
-          <FField label="Site">
-            <FSelect value={String(form.site)} onChange={set("site")} placeholder="Select site"
-              options={(sites || []).map(s => ({ value: String(s.id), label: s.name }))} />
-          </FField>
-          <FField label="Employment Type *">
-            <FSelect value={form.employment_type} onChange={set("employment_type")} placeholder="Select type"
-              options={[
-                { value: "full_time", label: "Full-Time" },
-                { value: "part_time", label: "Part-Time" },
-                { value: "contract", label: "Contract" },
-              ]} />
-          </FField>
-          {form.employment_type === "contract" ? (
-            <>
-              <FField label="Contract Start *"><FInput type="date" value={form.contract_start} onChange={set("contract_start")} /></FField>
-              <FField label="Contract End *"><FInput type="date" value={form.contract_end} onChange={set("contract_end")} /></FField>
-            </>
-          ) : (
-            <FField label="Date Started *"><FInput type="date" value={form.date_joined} onChange={set("date_joined")} /></FField>
-          )}
-          <FField label="Status *">
-            <FSelect value={form.status} onChange={set("status")} options={[
-              { value: "employed", label: "Employed" },
-              { value: "retired", label: "Retired" },
-              { value: "dismissed", label: "Dismissed" },
-              { value: "resigned", label: "Resigned" },
-              { value: "suspended", label: "Suspended" },
-            ]} />
-          </FField>
-          <FField label="Highest Education">
-            <FSelect value={form.highest_education} onChange={set("highest_education")} placeholder="Select level"
-              options={[
-                { value: "o_level", label: "O Level" }, { value: "a_level", label: "A Level" },
-                { value: "certificate", label: "Certificate" }, { value: "diploma", label: "Diploma" },
-                { value: "degree", label: "Degree" }, { value: "honours", label: "Honours Degree" },
-                { value: "masters", label: "Masters" }, { value: "phd", label: "PhD" },
-              ]} />
-          </FField>
-        </div>
-      )}
-
-      {/* ── Step 2: Salary & Banking ── */}
-      {step === 2 && (
         <div>
-          <FField label="Monthly Salary (USD) *">
-            <div style={{ position: "relative" }}>
-              <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", fontSize: 15, fontWeight: 700, color: "#1557b0", pointerEvents: "none", fontFamily: "'DM Sans',sans-serif" }}>$</span>
-              <input
-                style={{ ...inputStyle, paddingLeft: 28 }}
-                type="number" min="0" step="0.01"
-                value={form.monthly_salary}
-                onChange={e => set("monthly_salary")(e.target.value)}
-                placeholder="0.00"
-                onFocus={e => { e.target.style.borderColor = "#1557b0"; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
-                onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.boxShadow = "none"; }}
-              />
+          <FField label="Pay Type *">
+            <div style={{ display: "flex", gap: 10 }}>
+              {[["monthly", "Monthly Salary"], ["daily", "Daily Rate"]].map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => set("pay_type")(val)}
+                  style={{
+                    flex: 1, padding: "10px 14px", borderRadius: 10, cursor: "pointer",
+                    border: form.pay_type === val ? "1.5px solid #1557b0" : "1.5px solid #e2e8f0",
+                    background: form.pay_type === val ? "#eff6ff" : "#fff",
+                    color: form.pay_type === val ? "#1557b0" : "#64748b",
+                    fontWeight: 600, fontSize: 13, fontFamily: "'DM Sans',sans-serif",
+                    transition: "all 0.12s",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
+            {form.pay_type === "daily" && (
+              <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 6, fontFamily: "'DM Sans',sans-serif" }}>
+                For workers paid per day worked instead of a fixed monthly salary — pay varies with days attended, including weekends. Employment Type is set to Contract automatically.
+              </div>
+            )}
           </FField>
 
-          {dailyRate !== null && (
+          {form.pay_type === "daily" ? (
+            <FField label="Daily Rate (USD) *">
+              <div style={{ position: "relative" }}>
+                <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", fontSize: 15, fontWeight: 700, color: "#1557b0", pointerEvents: "none", fontFamily: "'DM Sans',sans-serif" }}>$</span>
+                <input
+                  style={{ ...inputStyle, paddingLeft: 28 }}
+                  type="number" min="0" step="0.01"
+                  value={form.daily_rate}
+                  onChange={e => set("daily_rate")(e.target.value)}
+                  placeholder="0.00"
+                  onFocus={e => { e.target.style.borderColor = "#1557b0"; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
+                  onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.boxShadow = "none"; }}
+                />
+              </div>
+            </FField>
+          ) : (
+            <FField label="Monthly Salary (USD) *">
+              <div style={{ position: "relative" }}>
+                <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", fontSize: 15, fontWeight: 700, color: "#1557b0", pointerEvents: "none", fontFamily: "'DM Sans',sans-serif" }}>$</span>
+                <input
+                  style={{ ...inputStyle, paddingLeft: 28 }}
+                  type="number" min="0" step="0.01"
+                  value={form.monthly_salary}
+                  onChange={e => set("monthly_salary")(e.target.value)}
+                  placeholder="0.00"
+                  onFocus={e => { e.target.style.borderColor = "#1557b0"; e.target.style.boxShadow = "0 0 0 3px rgba(21,87,176,0.1)"; }}
+                  onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.boxShadow = "none"; }}
+                />
+              </div>
+            </FField>
+          )}
+
+          {form.pay_type === "monthly" && dailyRate !== null && (
             <div className="emp-pay-calc-box" style={{ background: "linear-gradient(135deg,#f0f9ff,#eff6ff)", border: "1px solid #bfdbfe", borderRadius: 12, padding: "18px 20px", marginTop: 4, marginBottom: 18 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#1557b0", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 14, fontFamily: "'DM Sans',sans-serif" }}>
                 Pay Calculation — {new Date(currentYear, currentMonth).toLocaleString("en-GB", { month: "long", year: "numeric" })}
@@ -1043,6 +1054,22 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
                   <div key={i}>
                     <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3, fontFamily: "'DM Sans',sans-serif" }}>{l}</div>
                     <div style={{ fontSize: i === 2 ? 18 : 13, fontWeight: i === 2 ? 700 : 500, color: "#0a2a5e", fontFamily: i === 2 ? "'Playfair Display',serif" : "'DM Sans',sans-serif" }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {form.pay_type === "daily" && form.daily_rate && !isNaN(parseFloat(form.daily_rate)) && (
+            <div className="emp-pay-calc-box" style={{ background: "linear-gradient(135deg,#f0f9ff,#eff6ff)", border: "1px solid #bfdbfe", borderRadius: 12, padding: "18px 20px", marginTop: 4, marginBottom: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#1557b0", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 14, fontFamily: "'DM Sans',sans-serif" }}>
+                Pay Calculation
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {[["Daily Rate", fmt$(parseFloat(form.daily_rate))], ["If 10 days worked", fmt$(parseFloat(form.daily_rate) * 10)], ["If 20 days worked", fmt$(parseFloat(form.daily_rate) * 20)], ["If 31 days worked", fmt$(parseFloat(form.daily_rate) * 31)]].map(([l, v], i) => (
+                  <div key={i}>
+                    <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3, fontFamily: "'DM Sans',sans-serif" }}>{l}</div>
+                    <div style={{ fontSize: i === 0 ? 18 : 13, fontWeight: i === 0 ? 700 : 500, color: "#0a2a5e", fontFamily: i === 0 ? "'Playfair Display',serif" : "'DM Sans',sans-serif" }}>{v}</div>
                   </div>
                 ))}
               </div>
@@ -1086,6 +1113,62 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
               Both accounts are optional — fill in either or both. Payroll uses whichever account matches the currency selected for a pay run.
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Step 2: Employment Info ── */}
+      {step === 2 && (
+        <div className="emp-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+          <FField label="Employee Number *"><FInput value={form.employee_number} onChange={set("employee_number")} /></FField>
+          <FField label="Job Title *"><FInput value={form.job_title} onChange={set("job_title")} placeholder="e.g. Site Engineer" /></FField>
+          <FField label="Department">
+            <FSelect value={String(form.department)} onChange={set("department")} placeholder="Select department"
+              options={(departments || []).map(d => ({ value: String(d.id), label: d.name }))} />
+          </FField>
+          <FField label="Site">
+            <FSelect value={String(form.site)} onChange={set("site")} placeholder="Select site"
+              options={(sites || []).map(s => ({ value: String(s.id), label: s.name }))} />
+          </FField>
+          <FField label="Employment Type *">
+            <FSelect value={form.employment_type} onChange={set("employment_type")} placeholder="Select type"
+              disabled={form.pay_type === "daily"}
+              options={[
+                { value: "full_time", label: "Full-Time" },
+                { value: "part_time", label: "Part-Time" },
+                { value: "contract", label: "Contract" },
+              ]} />
+            {form.pay_type === "daily" && (
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4, fontFamily: "'DM Sans',sans-serif" }}>
+                Locked to Contract because Pay Type is set to Daily Rate.
+              </div>
+            )}
+          </FField>
+          {form.employment_type === "contract" ? (
+            <>
+              <FField label="Contract Start *"><FInput type="date" value={form.contract_start} onChange={set("contract_start")} /></FField>
+              <FField label="Contract End *"><FInput type="date" value={form.contract_end} onChange={set("contract_end")} /></FField>
+            </>
+          ) : (
+            <FField label="Date Started *"><FInput type="date" value={form.date_joined} onChange={set("date_joined")} /></FField>
+          )}
+          <FField label="Status *">
+            <FSelect value={form.status} onChange={set("status")} options={[
+              { value: "employed", label: "Employed" },
+              { value: "retired", label: "Retired" },
+              { value: "dismissed", label: "Dismissed" },
+              { value: "resigned", label: "Resigned" },
+              { value: "suspended", label: "Suspended" },
+            ]} />
+          </FField>
+          <FField label="Highest Education">
+            <FSelect value={form.highest_education} onChange={set("highest_education")} placeholder="Select level"
+              options={[
+                { value: "o_level", label: "O Level" }, { value: "a_level", label: "A Level" },
+                { value: "certificate", label: "Certificate" }, { value: "diploma", label: "Diploma" },
+                { value: "degree", label: "Degree" }, { value: "honours", label: "Honours Degree" },
+                { value: "masters", label: "Masters" }, { value: "phd", label: "PhD" },
+              ]} />
+          </FField>
         </div>
       )}
 
@@ -1740,6 +1823,7 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
   const [deptFilter,   setDeptFilter]   = useState("all");
   const [siteFilter,   setSiteFilter]   = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [payTypeFilter, setPayTypeFilter] = useState("all"); // "all" | "monthly" | "daily"
   const [modal,        setModal]        = useState(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [siteExportBusy, setSiteExportBusy] = useState(false);
@@ -1761,6 +1845,7 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
   const currentYear  = now.getFullYear();
   const currentMonth = now.getMonth();
   const workingDaysThisMonth = getWorkingDaysInMonth(currentYear, currentMonth);
+  const daysInThisMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const monthLabel = now.toLocaleString("en-GB", { month: "long", year: "numeric" });
 
   const monthStart = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-01`;
@@ -1802,20 +1887,23 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
   const downloadBySite = async () => {
     setSiteExportBusy(true);
     try {
+      const qs = payTypeFilter !== "all" ? `?pay_type=${payTypeFilter}` : "";
+      const url_ = `${API}/employees/export-by-site/${qs}`;
       let token = getToken();
-      let res = await fetch(`${API}/employees/export-by-site/`, {
+      let res = await fetch(url_, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401) {
         token = await refreshToken();
         if (!token) return;
-        res = await fetch(`${API}/employees/export-by-site/`, { headers: { Authorization: `Bearer ${token}` } });
+        res = await fetch(url_, { headers: { Authorization: `Bearer ${token}` } });
       }
       if (!res.ok) { showToast("Could not export employees by site.", "err"); return; }
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
-      a.href = url; a.download = "employees_by_site.xlsx";
+      const suffix = payTypeFilter === "daily" ? "_daily_rate" : payTypeFilter === "monthly" ? "_monthly_salary" : "";
+      a.href = url; a.download = `employees_by_site${suffix}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch {
@@ -1830,7 +1918,13 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
 
   const payrollMap = useMemo(() => {
     const m = {};
-    payrolls.forEach(p => { m[p.employee] = parseFloat(p.basic_salary) || 0; });
+    payrolls.forEach(p => {
+      m[p.employee] = {
+        payType: p.pay_type || "monthly",
+        basicSalary: parseFloat(p.basic_salary) || 0,
+        dailyRate: parseFloat(p.daily_rate) || 0,
+      };
+    });
     return m;
   }, [payrolls]);
 
@@ -1845,17 +1939,30 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
     return m;
   }, [attendanceAll]);
 
+  // Daily-rate employees are paid for every day worked, including weekends/holidays.
+  const attendanceAllDaysMap = useMemo(() => {
+    const m = {};
+    attendanceAll.forEach(rec => {
+      if (rec.status !== "present" && rec.status !== "late" && rec.status !== "half_day") return;
+      const empId = typeof rec.employee === "object" ? rec.employee.id : rec.employee;
+      m[empId] = (m[empId] || 0) + (rec.status === "half_day" ? 0.5 : 1);
+    });
+    return m;
+  }, [attendanceAll]);
+
   const enriched = useMemo(() => {
     if (!employees) return [];
     return employees.map(emp => {
-      const monthlySalary  = payrollMap[emp.id] || 0;
-      const dailyRate      = workingDaysThisMonth > 0 ? monthlySalary / workingDaysThisMonth : 0;
-      const daysAttended   = attendanceMap[emp.id] || 0;
+      const pr        = payrollMap[emp.id] || { payType: "monthly", basicSalary: 0, dailyRate: 0 };
+      const isDaily    = pr.payType === "daily";
+      const monthlySalary  = isDaily ? 0 : pr.basicSalary;
+      const dailyRate      = isDaily ? pr.dailyRate : (workingDaysThisMonth > 0 ? pr.basicSalary / workingDaysThisMonth : 0);
+      const daysAttended   = isDaily ? (attendanceAllDaysMap[emp.id] || 0) : (attendanceMap[emp.id] || 0);
       const amountToBePaid = dailyRate * daysAttended;
       const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
-      return { ...emp, fullName, monthlySalary, dailyRate, daysAttended, amountToBePaid };
+      return { ...emp, fullName, isDaily, monthlySalary, dailyRate, daysAttended, amountToBePaid };
     });
-  }, [employees, payrollMap, attendanceMap, workingDaysThisMonth]);
+  }, [employees, payrollMap, attendanceMap, attendanceAllDaysMap, workingDaysThisMonth]);
 
   const filtered = useMemo(() => {
     if (!enriched.length) return [];
@@ -1869,9 +1976,10 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
       const matchDept   = deptFilter === "all" || String(e.department) === deptFilter || (e.department_name || "").toLowerCase() === deptFilter.toLowerCase();
       const matchSite   = siteFilter === "all" || String(e.site) === siteFilter || (e.site_name || "").toLowerCase() === siteFilter.toLowerCase();
       const matchStatus = statusFilter === "all" || e.status === statusFilter;
-      return matchSearch && matchDept && matchSite && matchStatus;
+      const matchPayType = payTypeFilter === "all" || (payTypeFilter === "daily" ? e.isDaily : !e.isDaily);
+      return matchSearch && matchDept && matchSite && matchStatus && matchPayType;
     });
-  }, [enriched, search, deptFilter, siteFilter, statusFilter]);
+  }, [enriched, search, deptFilter, siteFilter, statusFilter, payTypeFilter]);
 
   const totalWorkers  = enriched.length;
   const totalPayable  = filtered.reduce((s, e) => s + e.amountToBePaid, 0);
@@ -1887,8 +1995,9 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
     fullName:      e.fullName,
     jobTitle:      e.job_title || e.position || "—",
     dept:          e.department_name || departments.find(d => d.id === e.department)?.name || "—",
+    isDaily:       e.isDaily,
     daysAttended:  e.daysAttended,
-    workingDays:   workingDaysThisMonth,
+    workingDays:   e.isDaily ? daysInThisMonth : workingDaysThisMonth,
     monthlySalary: e.monthlySalary,
     dailyRate:     e.dailyRate,
     amountToBePaid: e.amountToBePaid,
@@ -2000,9 +2109,9 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
                   overflow: "hidden", zIndex: 200,
                 }}>
                   {[
-                    { label: siteExportBusy ? "Preparing…" : "Download by Site (Excel)", icon: "🗂️", action: () => { if (!siteExportBusy) { downloadBySite(); setDownloadOpen(false); } } },
-                    { label: "Download as Excel (CSV)", icon: "📊", action: () => { downloadCSV(tableRows, `employees-${monthLabel.replace(/ /g, "-")}.csv`); setDownloadOpen(false); } },
-                    { label: "Download as PDF",         icon: "📄", action: () => { downloadPDF(tableRows, monthLabel); setDownloadOpen(false); } },
+                    { label: siteExportBusy ? "Preparing…" : `Download by Site (Excel)${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}`, icon: "🗂️", action: () => { if (!siteExportBusy) { downloadBySite(); setDownloadOpen(false); } } },
+                    { label: `Download as Excel (CSV)${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}`, icon: "📊", action: () => { downloadCSV(tableRows, `employees${payTypeFilter !== "all" ? `-${payTypeFilter}` : ""}-${monthLabel.replace(/ /g, "-")}.csv`); setDownloadOpen(false); } },
+                    { label: `Download as PDF${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}`, icon: "📄", action: () => { downloadPDF(tableRows, monthLabel); setDownloadOpen(false); } },
                   ].map(item => (
                     <button key={item.label} onClick={item.action} style={{
                       display: "flex", alignItems: "center", gap: 10,
@@ -2101,6 +2210,41 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
           background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0",
           boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden",
         }}>
+          {/* Pay Type tabs */}
+          <div className="emp-paytype-tabs" style={{ display: "flex", gap: 6, padding: "16px 20px 0" }}>
+            {[
+              ["all",     "All Employees", enriched.length],
+              ["monthly", "Monthly Salary", enriched.filter(e => !e.isDaily).length],
+              ["daily",   "Daily Rate",     enriched.filter(e => e.isDaily).length],
+            ].map(([val, label, count]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setPayTypeFilter(val)}
+                style={{
+                  padding: "9px 16px", borderRadius: "10px 10px 0 0", cursor: "pointer",
+                  border: "1.5px solid " + (payTypeFilter === val ? "#1557b0" : "transparent"),
+                  borderBottom: payTypeFilter === val ? "1.5px solid #fff" : "1.5px solid transparent",
+                  marginBottom: -2,
+                  background: payTypeFilter === val ? "#fff" : "#f8faff",
+                  color: payTypeFilter === val ? "#1557b0" : "#64748b",
+                  fontWeight: 600, fontSize: 12.5, fontFamily: "'DM Sans',sans-serif",
+                  display: "flex", alignItems: "center", gap: 7, transition: "all 0.12s",
+                }}
+              >
+                {val === "daily" && <span style={{ fontSize: 10 }}>🗓️</span>}
+                {label}
+                <span style={{
+                  fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99,
+                  background: payTypeFilter === val ? "#eff6ff" : "#eef2f7",
+                  color: payTypeFilter === val ? "#1557b0" : "#94a3b8",
+                }}>
+                  {count}
+                </span>
+              </button>
+            ))}
+          </div>
+
           {/* Filters */}
           <div className="emp-filters-bar" style={{ padding: "18px 20px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <div style={{ position: "relative", flex: "1 1 220px" }}>
@@ -2206,12 +2350,17 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
                       </td>
                       <td className="emp-td" style={{ padding: "11px 14px", color: "#334155", fontWeight: 500, fontSize: 12.5, whiteSpace: "nowrap" }}>
                         {emp.job_title || emp.position || "—"}
+                        {emp.isDaily && (
+                          <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, color: "#7c3aed", background: "#f3e8ff", padding: "2px 7px", borderRadius: 99, letterSpacing: "0.3px", textTransform: "uppercase" }}>
+                            Daily
+                          </span>
+                        )}
                       </td>
                       <td className="emp-td" style={{ padding: "11px 14px", minWidth: 150 }}>
-                        <AttBar attended={emp.daysAttended} total={workingDaysThisMonth} />
+                        <AttBar attended={emp.daysAttended} total={emp.isDaily ? daysInThisMonth : workingDaysThisMonth} />
                       </td>
                       <td className="emp-td" style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", fontSize: 12.5, color: emp.monthlySalary > 0 ? "#0f172a" : "#cbd5e1", whiteSpace: "nowrap" }}>
-                        {emp.monthlySalary > 0 ? fmt$(emp.monthlySalary) : <span style={{ color: "#cbd5e1" }}>Not set</span>}
+                        {emp.isDaily ? <span style={{ color: "#cbd5e1" }}>—</span> : (emp.monthlySalary > 0 ? fmt$(emp.monthlySalary) : <span style={{ color: "#cbd5e1" }}>Not set</span>)}
                       </td>
                       <td className="emp-td" style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
                         {emp.dailyRate > 0 ? fmt$(emp.dailyRate) : "—"}
@@ -2279,6 +2428,7 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
           showToast={showToast}
           onSave={emp => {
             setEmployees(prev => prev ? [emp, ...prev] : [emp]);
+            fetchPayrollAndAttendance();   // ← add this
             showToast("Employee added successfully.");
           }}
         />

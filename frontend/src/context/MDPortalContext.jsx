@@ -3,8 +3,9 @@
 // CACHING STRATEGY
 // employees    — fetched once on mount, cached in context for entire session
 // departments  — fetched once on mount
+// sites        — fetched once on mount from /employees/sites/, the same
+//                HR-managed Site registry used on the Sites & Departments page
 // attendance   — fetched once on mount (today's records for dashboard stats)
-// locations    — fetched once, derived from attendance location field
 // employeeDetails — Map cache: empId → full detail object (lazy, on demand)
 // All heavy data lives here so switching pages never re-fetches from the server.
 
@@ -23,18 +24,19 @@ export function MDPortalProvider({ children }) {
   // ── Core data ──────────────────────────────────────────────────────────────
   const [employees,   setEmployees]   = useState(null);
   const [departments, setDepartments] = useState(null);
+  const [sites,       setSites]       = useState(null); // real HR-managed Site records
   const [attendance,  setAttendance]  = useState(null); // today
   const [payroll,     setPayroll]     = useState(null);
 
   const [loading, setLoading] = useState({
-    employees: false, departments: false, attendance: false, payroll: false,
+    employees: false, departments: false, sites: false, attendance: false, payroll: false,
   });
   const [errors, setErrors] = useState({
-    employees: null, departments: null, attendance: null, payroll: null,
+    employees: null, departments: null, sites: null, attendance: null, payroll: null,
   });
 
   const fetching = useRef({
-    employees: false, departments: false, attendance: false, payroll: false,
+    employees: false, departments: false, sites: false, attendance: false, payroll: false,
   });
 
   // ── Employee detail cache (lazy) ───────────────────────────────────────────
@@ -46,7 +48,7 @@ export function MDPortalProvider({ children }) {
     setLoading(l => ({ ...l, [key]: true }));
     setErrors(e  => ({ ...e, [key]: null  }));
     const setterMap = {
-      employees: setEmployees, departments: setDepartments,
+      employees: setEmployees, departments: setDepartments, sites: setSites,
       attendance: setAttendance, payroll: setPayroll,
     };
     try {
@@ -68,12 +70,20 @@ export function MDPortalProvider({ children }) {
   useEffect(() => {
     load("employees",   "/employees/");
     load("departments", "/employees/departments/");
+    // Sites are managed by HR (Sites & Departments page) — this is the
+    // same registry HR assigns employees to, and the single source of
+    // truth for the site filter everywhere in the MD Portal.
+    load("sites",       "/employees/sites/");
     load("attendance",  `/attendance/?date=${today}`);
   }, [load, today]);
 
-  // ── Derived: unique sites from attendance records ──────────────────────────
-  // Sites are the "location" field set by HODs when marking attendance.
-  // We pull ALL attendance (not just today) once to collect every site name.
+  const refetchSites = useCallback(() => {
+    setSites(null);
+    fetching.current.sites = false;
+    load("sites", "/employees/sites/");
+  }, [load]);
+
+  // ── Full attendance history (used for payroll calcs & totals) ──────────────
   const [allAttendance, setAllAttendance] = useState(null);
   const fetchingAllAtt = useRef(false);
 
@@ -94,32 +104,10 @@ export function MDPortalProvider({ children }) {
 
   useEffect(() => { loadAllAttendance(); }, [loadAllAttendance]);
 
-  // ── Also fetch location registry (DeptPortal stores these) ─────────────────
-  const [locationRegistry, setLocationRegistry] = useState([]);
-  useEffect(() => {
-    apiFetch(`${API}/attendance/locations/`)
-      .then(r => r.ok ? r.json() : [])
-      .then(d => {
-        const list = Array.isArray(d) ? d : (d.results || []);
-        if (list.length > 0) setLocationRegistry(list);
-      })
-      .catch(() => {});
-  }, []);
-
-  // Merge both sources for the final site list
-  const sites = useMemo(() => {
-    const fromRegistry = locationRegistry.filter(Boolean);
-    const fromAtt = (allAttendance || [])
-      .map(a => a.location || a.site || "")
-      .filter(Boolean);
-    const combined = [...new Set([...fromRegistry, ...fromAtt])].sort();
-    return combined;
-  }, [locationRegistry, allAttendance]);
-
   // ── Computed stats ─────────────────────────────────────────────────────────
   const stats = useMemo(() => {
     if (!employees || !departments) return null;
-    return computeStats(employees, departments, attendance || [], sites);
+    return computeStats(employees, departments, attendance || [], sites || []);
   }, [employees, departments, attendance, sites]);
 
   // ── Fetch full employee detail (lazy, cached) ──────────────────────────────
@@ -165,7 +153,7 @@ export function MDPortalProvider({ children }) {
     employees, departments, attendance, allAttendance, payroll,
     loading, errors,
     stats, today,
-    sites,
+    sites, refetchSites,
     fetchEmployeeDetail,
   };
 

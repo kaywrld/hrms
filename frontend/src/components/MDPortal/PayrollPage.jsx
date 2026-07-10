@@ -75,6 +75,16 @@ function workingDaysInMonth(year, month) {
   }
   return c;
 }
+// A daily-rated employee is paid for every day they actually work, including
+// weekends/holidays — so their attendance isn't restricted to "working days"
+// the way a monthly-salary employee's is. This mirrors HRPortal's PayrollPage.
+function isWorkingDay(dateStr) {
+  const dt = new Date(dateStr);
+  const dow = dt.getDay();
+  if (dow === 0 || dow === 6) return false;
+  const year = dt.getFullYear(), month = dt.getMonth();
+  return !getZwHolidays(year, month).has(dateStr);
+}
 
 // ─── Format helpers ───────────────────────────────────────────────────────────
 const fmtUSD = (n) => {
@@ -204,7 +214,9 @@ function ZigBadge({ usdAmount, rate, small }) {
 // ─── Employee History Detail View ─────────────────────────────────────────────
 function EmployeeHistoryView({ emp, payrollRecord, allAttendance, onBack, zigRate }) {
   const name = emp.full_name || [emp.first_name,emp.last_name].filter(Boolean).join(" ") || "—";
-  const basicSalary = parseFloat(payrollRecord?.basic_salary) || 0;
+  const isDaily     = payrollRecord?.pay_type === "daily";
+  const basicSalary = isDaily ? 0 : (parseFloat(payrollRecord?.basic_salary) || 0);
+  const dailyRate   = isDaily ? (parseFloat(payrollRecord?.daily_rate) || 0) : 0;
 
   const months = useMemo(() => {
     const empAtt = (allAttendance||[]).filter(r => r.employee === emp.id);
@@ -220,9 +232,14 @@ function EmployeeHistoryView({ emp, payrollRecord, allAttendance, onBack, zigRat
       .map(([key, recs]) => {
         const [y,m] = key.split("-").map(Number);
         const wd = workingDaysInMonth(y, m-1);
-        const present = recs.filter(r => ["present","late","half_day"].includes(r.status)).length;
-        const halfDays = recs.filter(r => r.status==="half_day").length;
+        const daysInMo = new Date(y, m, 0).getDate();
+        // Daily-rate employees are paid for every day worked (weekends/holidays
+        // included); monthly-salary employees are only paid for working days.
+        const relevantRecs = isDaily ? recs : recs.filter(r => isWorkingDay(r.date));
+        const present = relevantRecs.filter(r => ["present","late","half_day"].includes(r.status)).length;
+        const halfDays = relevantRecs.filter(r => r.status==="half_day").length;
         const effectiveDays = present - halfDays*0.5;
+        const denom = isDaily ? daysInMo : wd;
         const deductionRec = recs.find(r => r.deduction_amount) || null;
         const deduction = parseFloat(deductionRec?.deduction_amount)||0;
         let lsDeduction = 0;
@@ -232,11 +249,13 @@ function EmployeeHistoryView({ emp, payrollRecord, allAttendance, onBack, zigRat
           if (stored) { const p = JSON.parse(stored); lsDeduction = parseFloat(p.deduction)||0; }
         } catch {}
         const totalDeduction = deduction || lsDeduction;
-        const netSalary = wd > 0 ? (basicSalary / wd) * effectiveDays - totalDeduction : 0;
+        const netSalary = isDaily
+          ? dailyRate * effectiveDays - totalDeduction
+          : (wd > 0 ? (basicSalary / wd) * effectiveDays - totalDeduction : 0);
         const label = new Date(y, m-1, 1).toLocaleString("default",{month:"long",year:"numeric"});
-        return { key, label, y, m: m-1, wd, present, halfDays, effectiveDays, netSalary, totalDeduction, basicSalary };
+        return { key, label, y, m: m-1, wd, denom, present, halfDays, effectiveDays, netSalary, totalDeduction, basicSalary, dailyRate };
       });
-  }, [allAttendance, emp.id, basicSalary]);
+  }, [allAttendance, emp.id, basicSalary, dailyRate, isDaily]);
 
   const totalEarned = months.reduce((s,mo) => s + Math.max(0, mo.netSalary), 0);
 
@@ -267,9 +286,9 @@ function EmployeeHistoryView({ emp, payrollRecord, allAttendance, onBack, zigRat
         {/* Stats row */}
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
           <div style={{flex:"1 1 130px",background:"#f8faff",borderRadius:10,border:`1px solid ${C.border}`,padding:"12px 14px"}}>
-            <div style={{fontSize:9,color:C.dim,fontWeight:700,letterSpacing:"0.8px",textTransform:"uppercase",fontFamily:"'DM Sans',sans-serif",marginBottom:3}}>Basic Salary</div>
-            <div style={{fontSize:18,fontWeight:700,color:C.navy,fontFamily:"'Playfair Display',serif"}}>{fmtUSD(basicSalary)}</div>
-            {zigRate && <ZigBadge usdAmount={basicSalary} rate={zigRate} />}
+            <div style={{fontSize:9,color:C.dim,fontWeight:700,letterSpacing:"0.8px",textTransform:"uppercase",fontFamily:"'DM Sans',sans-serif",marginBottom:3}}>{isDaily ? "Daily Rate" : "Basic Salary"}</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.navy,fontFamily:"'Playfair Display',serif"}}>{isDaily ? `${fmtUSD(dailyRate)}/day` : fmtUSD(basicSalary)}</div>
+            {zigRate && <ZigBadge usdAmount={isDaily ? dailyRate : basicSalary} rate={zigRate} />}
           </div>
           <div style={{flex:"1 1 130px",background:"#f0fdf4",borderRadius:10,border:`1px solid #bbf7d0`,padding:"12px 14px"}}>
             <div style={{fontSize:9,color:C.dim,fontWeight:700,letterSpacing:"0.8px",textTransform:"uppercase",fontFamily:"'DM Sans',sans-serif",marginBottom:3}}>Total Earned</div>
@@ -300,7 +319,7 @@ function EmployeeHistoryView({ emp, payrollRecord, allAttendance, onBack, zigRat
                 <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"'DM Sans',sans-serif"}}>
                   <thead>
                     <tr style={{background:"#fafbff",borderBottom:`1.5px solid ${C.border}`}}>
-                      {["Month","Working Days","Days Attended","Basic Salary","Deduction","Net Salary"].map(h => (
+                      {["Month","Days in Period","Days Attended","Basic Salary / Rate","Deduction","Net Salary"].map(h => (
                         <th key={h} style={{padding:"10px 16px",textAlign:"left",fontSize:10,fontWeight:700,color:C.muted,letterSpacing:"0.8px",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
                       ))}
                     </tr>
@@ -311,15 +330,15 @@ function EmployeeHistoryView({ emp, payrollRecord, allAttendance, onBack, zigRat
                       return (
                         <tr key={mo.key} style={{borderBottom:"1px solid #f1f5f9"}}>
                           <td style={{padding:"11px 16px",fontSize:13,fontWeight:600,color:C.navy,fontFamily:"'DM Sans',sans-serif"}}>{mo.label}</td>
-                          <td style={{padding:"11px 16px",fontSize:13,color:C.text,fontFamily:"'DM Sans',sans-serif"}}>{mo.wd}</td>
+                          <td style={{padding:"11px 16px",fontSize:13,color:C.text,fontFamily:"'DM Sans',sans-serif"}}>{mo.denom}</td>
                           <td style={{padding:"11px 16px"}}>
-                            <span style={{fontSize:13,fontWeight:600,color:mo.present>=mo.wd*0.9?C.green:mo.present>=mo.wd*0.7?C.amber:C.red,fontFamily:"'DM Sans',sans-serif"}}>{mo.present}</span>
-                            <span style={{fontSize:12,color:C.dim}}>/{mo.wd}</span>
+                            <span style={{fontSize:13,fontWeight:600,color:mo.present>=mo.denom*0.9?C.green:mo.present>=mo.denom*0.7?C.amber:C.red,fontFamily:"'DM Sans',sans-serif"}}>{mo.present}</span>
+                            <span style={{fontSize:12,color:C.dim}}>/{mo.denom}</span>
                             {mo.halfDays > 0 && <span style={{fontSize:10,color:C.teal,background:C.tealBg,borderRadius:20,padding:"1px 6px",marginLeft:6,fontWeight:600}}>½×{mo.halfDays}</span>}
                           </td>
                           <td style={{padding:"11px 16px"}}>
-                            <div style={{fontSize:13,fontWeight:600,color:C.navy,fontFamily:"'Playfair Display',serif"}}>{fmtUSD(mo.basicSalary)}</div>
-                            {zigRate && <ZigBadge usdAmount={mo.basicSalary} rate={zigRate} small />}
+                            <div style={{fontSize:13,fontWeight:600,color:C.navy,fontFamily:"'Playfair Display',serif"}}>{isDaily ? `${fmtUSD(mo.dailyRate)}/day` : fmtUSD(mo.basicSalary)}</div>
+                            {zigRate && <ZigBadge usdAmount={isDaily ? mo.dailyRate : mo.basicSalary} rate={zigRate} small />}
                           </td>
                           <td style={{padding:"11px 16px"}}>
                             {mo.totalDeduction > 0
@@ -363,12 +382,12 @@ function EmployeeHistoryView({ emp, payrollRecord, allAttendance, onBack, zigRat
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                       <div style={{background:"#f8faff",borderRadius:8,padding:"8px 10px"}}>
                         <div style={{fontSize:9,color:C.dim,fontWeight:700,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:3}}>Attendance</div>
-                        <span style={{fontSize:13,fontWeight:700,color:mo.present>=mo.wd*0.9?C.green:mo.present>=mo.wd*0.7?C.amber:C.red}}>{mo.present}</span>
-                        <span style={{fontSize:12,color:C.dim}}>/{mo.wd} days</span>
+                        <span style={{fontSize:13,fontWeight:700,color:mo.present>=mo.denom*0.9?C.green:mo.present>=mo.denom*0.7?C.amber:C.red}}>{mo.present}</span>
+                        <span style={{fontSize:12,color:C.dim}}>/{mo.denom} days</span>
                       </div>
                       <div style={{background:"#f8faff",borderRadius:8,padding:"8px 10px"}}>
-                        <div style={{fontSize:9,color:C.dim,fontWeight:700,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:3}}>Basic Salary</div>
-                        <div style={{fontSize:13,fontWeight:600,color:C.navy,fontFamily:"'Playfair Display',serif"}}>{fmtUSD(mo.basicSalary)}</div>
+                        <div style={{fontSize:9,color:C.dim,fontWeight:700,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:3}}>{isDaily ? "Daily Rate" : "Basic Salary"}</div>
+                        <div style={{fontSize:13,fontWeight:600,color:C.navy,fontFamily:"'Playfair Display',serif"}}>{isDaily ? `${fmtUSD(mo.dailyRate)}/day` : fmtUSD(mo.basicSalary)}</div>
                       </div>
                       {mo.totalDeduction > 0 && (
                         <div style={{background:C.redBg,borderRadius:8,padding:"8px 10px",gridColumn:"1/-1"}}>
@@ -456,11 +475,25 @@ export default function PayrollPage() {
     return m;
   }, [payrolls]);
 
+  // Monthly-salary employees: only working days count (weekends/holidays excluded).
   const attMap = useMemo(() => {
     const m = {};
     monthAtt.forEach(r => {
+      if (!["present","late","half_day"].includes(r.status)) return;
+      if (!isWorkingDay(r.date)) return;
       if (!m[r.employee]) m[r.employee] = { present: 0, halfDays: 0 };
-      if (["present","late","half_day"].includes(r.status)) m[r.employee].present++;
+      m[r.employee].present++;
+      if (r.status === "half_day") m[r.employee].halfDays++;
+    });
+    return m;
+  }, [monthAtt]);
+  // Daily-rate employees: every day actually worked counts, weekends/holidays included.
+  const attAllDaysMap = useMemo(() => {
+    const m = {};
+    monthAtt.forEach(r => {
+      if (!["present","late","half_day"].includes(r.status)) return;
+      if (!m[r.employee]) m[r.employee] = { present: 0, halfDays: 0 };
+      m[r.employee].present++;
       if (r.status === "half_day") m[r.employee].halfDays++;
     });
     return m;
@@ -472,14 +505,20 @@ export default function PayrollPage() {
     return [...s].sort();
   }, [employees]);
 
+  const daysInViewedMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
   const allRows = useMemo(() => {
     if (!employees) return [];
     return employees
       .filter(e => e.status === "employed")
       .map(emp => {
         const pr        = payrollMap[emp.id];
-        const basic     = parseFloat(pr?.basic_salary) || 0;
-        const attRec    = attMap[emp.id] || { present: 0, halfDays: 0 };
+        const isDaily    = pr?.pay_type === "daily";
+        const basic      = isDaily ? 0 : (parseFloat(pr?.basic_salary) || 0);
+        const dailyRate  = isDaily
+          ? (parseFloat(pr?.daily_rate) || 0)
+          : (wdInMonth > 0 ? basic / wdInMonth : 0);
+        const attRec    = (isDaily ? attAllDaysMap[emp.id] : attMap[emp.id]) || { present: 0, halfDays: 0 };
         const effective = attRec.present - attRec.halfDays * 0.5;
         let deduction = 0, bonus = 0;
         try {
@@ -487,11 +526,11 @@ export default function PayrollPage() {
           const stored = localStorage.getItem(lsKey);
           if (stored) { const p = JSON.parse(stored); deduction = parseFloat(p.deduction)||0; bonus = parseFloat(p.bonus)||0; }
         } catch {}
-        const prorated  = wdInMonth > 0 ? (basic / wdInMonth) * effective : 0;
+        const prorated  = isDaily ? dailyRate * effective : (wdInMonth > 0 ? (basic / wdInMonth) * effective : 0);
         const net       = Math.max(0, prorated - deduction + bonus);
-        return { emp, pr, basic, attRec, effective, deduction, bonus, prorated, net };
+        return { emp, pr, isDaily, basic, dailyRate, attRec, effective, deduction, bonus, prorated, net };
       });
-  }, [employees, payrollMap, attMap, viewYear, viewMonth, wdInMonth]);
+  }, [employees, payrollMap, attMap, attAllDaysMap, viewYear, viewMonth, wdInMonth]);
 
   const rows = useMemo(() => {
     let list = allRows;
@@ -514,7 +553,13 @@ export default function PayrollPage() {
   const totalAllTime = useMemo(() => {
     if (!employees || !payrolls.length || !allAttendance) return null;
     const pmMap = {};
-    payrolls.forEach(p => { pmMap[p.employee] = parseFloat(p.basic_salary)||0; });
+    payrolls.forEach(p => {
+      pmMap[p.employee] = {
+        isDaily: p.pay_type === "daily",
+        basic: parseFloat(p.basic_salary) || 0,
+        dailyRate: parseFloat(p.daily_rate) || 0,
+      };
+    });
     const empMonthMap = {};
     (allAttendance||[]).forEach(r => {
       if (!r.employee || !r.date) return;
@@ -525,10 +570,14 @@ export default function PayrollPage() {
     let total = 0;
     Object.values(empMonthMap).forEach(({ emp: eid, ym, recs }) => {
       const [y,m] = ym.split("-").map(Number);
+      const pay = pmMap[eid] || { isDaily: false, basic: 0, dailyRate: 0 };
       const wd = workingDaysInMonth(y, m-1);
-      const basic = pmMap[eid] || 0;
-      const present = recs.filter(r=>["present","late","half_day"].includes(r.status)).length;
-      const half = recs.filter(r=>r.status==="half_day").length;
+      const daysInMo = new Date(y, m, 0).getDate();
+      // Daily-rate employees are paid for every day worked (weekends/holidays
+      // included); monthly-salary employees only for working days.
+      const relevantRecs = pay.isDaily ? recs : recs.filter(r => isWorkingDay(r.date));
+      const present = relevantRecs.filter(r=>["present","late","half_day"].includes(r.status)).length;
+      const half = relevantRecs.filter(r=>r.status==="half_day").length;
       const effective = present - half*0.5;
       let ded = 0;
       try {
@@ -536,7 +585,9 @@ export default function PayrollPage() {
         const stored = localStorage.getItem(lsKey);
         if (stored) { const p = JSON.parse(stored); ded = parseFloat(p.deduction)||0; }
       } catch {}
-      const net = wd > 0 ? Math.max(0, (basic/wd)*effective - ded) : 0;
+      const net = pay.isDaily
+        ? Math.max(0, pay.dailyRate * effective - ded)
+        : (wd > 0 ? Math.max(0, (pay.basic/wd)*effective - ded) : 0);
       total += net;
     });
     return total;
@@ -936,10 +987,12 @@ export default function PayrollPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map(({ emp, pr, basic, attRec, deduction, net }) => {
+                    {rows.map(({ emp, pr, isDaily, basic, dailyRate, attRec, deduction, net }) => {
                       const name = emp.full_name || [emp.first_name,emp.last_name].filter(Boolean).join(" ") || "—";
-                      const pct = wdInMonth > 0 ? attRec.present / wdInMonth : 0;
+                      const denom = isDaily ? daysInViewedMonth : wdInMonth;
+                      const pct = denom > 0 ? attRec.present / denom : 0;
                       const attColor = pct >= 0.9 ? C.green : pct >= 0.7 ? C.amber : C.red;
+                      const hasRate = isDaily ? dailyRate > 0 : basic > 0;
                       return (
                         <tr key={emp.id} className="pr-row" onClick={() => openHistory(emp)}
                           style={{cursor:"pointer",transition:"background .12s",borderBottom:"1px solid #f1f5f9",background:"transparent"}}>
@@ -953,14 +1006,19 @@ export default function PayrollPage() {
                             </div>
                           </td>
                           <td style={{padding:"11px 16px"}}>
-                            <div style={{fontSize:12.5,color:"#334155",fontFamily:"'DM Sans',sans-serif",fontWeight:500,whiteSpace:"nowrap"}}>{emp.job_title||emp.position||"—"}</div>
+                            <div style={{fontSize:12.5,color:"#334155",fontFamily:"'DM Sans',sans-serif",fontWeight:500,whiteSpace:"nowrap"}}>
+                              {emp.job_title||emp.position||"—"}
+                              {isDaily && (
+                                <span style={{marginLeft:8,fontSize:9,fontWeight:700,color:C.violet,background:C.violetBg,padding:"2px 7px",borderRadius:99,letterSpacing:"0.3px",textTransform:"uppercase"}}>Daily</span>
+                              )}
+                            </div>
                             {emp.department_name && <div style={{fontSize:11,color:C.dim,marginTop:1}}>{emp.department_name}</div>}
                           </td>
                           <td style={{padding:"11px 16px",whiteSpace:"nowrap"}}>
                             <div style={{display:"flex",flexDirection:"column",gap:3}}>
                               <span>
                                 <span style={{fontSize:13,fontWeight:700,color:attColor,fontFamily:"'Playfair Display',serif"}}>{attRec.present}</span>
-                                <span style={{fontSize:11,color:C.dim}}>/{wdInMonth}</span>
+                                <span style={{fontSize:11,color:C.dim}}>/{denom}</span>
                                 {attRec.halfDays > 0 && <span style={{fontSize:10,color:C.teal,background:C.tealBg,borderRadius:20,padding:"1px 6px",marginLeft:6,fontWeight:600}}>½×{attRec.halfDays}</span>}
                               </span>
                               <div style={{width:60,height:4,background:"#e8edf8",borderRadius:99,overflow:"hidden"}}>
@@ -969,8 +1027,12 @@ export default function PayrollPage() {
                             </div>
                           </td>
                           <td style={{padding:"11px 16px"}}>
-                            <div style={{fontSize:13,fontWeight:600,color:C.navy,fontFamily:"'Playfair Display',serif"}}>{basic > 0 ? fmtUSD(basic) : <span style={{color:C.dim,fontSize:12}}>Not set</span>}</div>
-                            {zigRate && basic > 0 && <ZigBadge usdAmount={basic} rate={zigRate} small />}
+                            <div style={{fontSize:13,fontWeight:600,color:C.navy,fontFamily:"'Playfair Display',serif"}}>
+                              {hasRate
+                                ? (isDaily ? `${fmtUSD(dailyRate)}/day` : fmtUSD(basic))
+                                : <span style={{color:C.dim,fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>Not set</span>}
+                            </div>
+                            {zigRate && hasRate && <ZigBadge usdAmount={isDaily ? dailyRate : basic} rate={zigRate} small />}
                           </td>
                           <td style={{padding:"11px 16px"}}>
                             {deduction > 0
@@ -978,7 +1040,7 @@ export default function PayrollPage() {
                               : <span style={{fontSize:12,color:C.dim}}>—</span>}
                           </td>
                           <td style={{padding:"11px 16px"}}>
-                            {basic > 0
+                            {hasRate
                               ? <div><div style={{fontSize:14,fontWeight:700,color:net>0?C.green:C.dim,fontFamily:"'Playfair Display',serif"}}>{fmtUSD(net)}</div>{zigRate && net > 0 && <ZigBadge usdAmount={net} rate={zigRate} small />}</div>
                               : <span style={{fontSize:12,color:C.dim}}>—</span>}
                           </td>
@@ -1014,10 +1076,12 @@ export default function PayrollPage() {
 
               {/* ── Mobile card list (<640px) ───────────────────────────── */}
               <div className="pr-mobile-list">
-                {rows.map(({ emp, attRec, basic, deduction, net }) => {
+                {rows.map(({ emp, isDaily, attRec, basic, dailyRate, deduction, net }) => {
                   const name = emp.full_name || [emp.first_name,emp.last_name].filter(Boolean).join(" ") || "—";
-                  const pct = wdInMonth > 0 ? attRec.present / wdInMonth : 0;
+                  const denom = isDaily ? daysInViewedMonth : wdInMonth;
+                  const pct = denom > 0 ? attRec.present / denom : 0;
                   const attColor = pct >= 0.9 ? C.green : pct >= 0.7 ? C.amber : C.red;
+                  const hasRate = isDaily ? dailyRate > 0 : basic > 0;
                   return (
                     <div key={emp.id} onClick={()=>openHistory(emp)}
                       style={{padding:"14px",borderBottom:`1px solid ${C.border}`,cursor:"pointer",display:"flex",flexDirection:"column",gap:10,WebkitTapHighlightColor:"transparent"}}
@@ -1031,12 +1095,17 @@ export default function PayrollPage() {
                         <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
                           <Avatar emp={emp} size={40} />
                           <div style={{minWidth:0}}>
-                            <div style={{fontWeight:600,fontSize:14,color:C.navy,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}</div>
+                            <div style={{fontWeight:600,fontSize:14,color:C.navy,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                              {name}
+                              {isDaily && (
+                                <span style={{marginLeft:6,fontSize:8.5,fontWeight:700,color:C.violet,background:C.violetBg,padding:"1px 6px",borderRadius:99,letterSpacing:"0.3px",textTransform:"uppercase"}}>Daily</span>
+                              )}
+                            </div>
                             <div style={{fontSize:11.5,color:C.muted,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.job_title||"—"}{emp.department_name?` · ${emp.department_name}`:""}</div>
                           </div>
                         </div>
                         <div style={{textAlign:"right",flexShrink:0}}>
-                          <div style={{fontSize:15,fontWeight:700,color:net>0?C.green:C.dim,fontFamily:"'Playfair Display',serif"}}>{basic>0?fmtUSD(net):"—"}</div>
+                          <div style={{fontSize:15,fontWeight:700,color:net>0?C.green:C.dim,fontFamily:"'Playfair Display',serif"}}>{hasRate?fmtUSD(net):"—"}</div>
                           {zigRate && net > 0 && <ZigBadge usdAmount={net} rate={zigRate} small />}
                         </div>
                       </div>
@@ -1046,13 +1115,13 @@ export default function PayrollPage() {
                         {/* Attendance chip */}
                         <div style={{display:"flex",alignItems:"center",gap:5,background:"#f8faff",borderRadius:8,padding:"5px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
                           <span style={{color:attColor,fontWeight:700}}>{attRec.present}</span>
-                          <span style={{color:C.dim}}>/ {wdInMonth} days</span>
+                          <span style={{color:C.dim}}>/ {denom} days</span>
                           {attRec.halfDays > 0 && <span style={{fontSize:10,color:C.teal,background:C.tealBg,borderRadius:20,padding:"1px 5px",fontWeight:600}}>½×{attRec.halfDays}</span>}
                         </div>
-                        {/* Basic chip */}
-                        {basic > 0 && (
+                        {/* Basic/rate chip */}
+                        {hasRate && (
                           <div style={{display:"flex",alignItems:"center",gap:4,background:"#f8faff",borderRadius:8,padding:"5px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",color:C.muted}}>
-                            <span>Basic: </span><span style={{fontWeight:600,color:C.navy}}>{fmtUSD(basic)}</span>
+                            <span>{isDaily ? "Rate: " : "Basic: "}</span><span style={{fontWeight:600,color:C.navy}}>{isDaily ? `${fmtUSD(dailyRate)}/day` : fmtUSD(basic)}</span>
                           </div>
                         )}
                         {/* Deduction chip */}

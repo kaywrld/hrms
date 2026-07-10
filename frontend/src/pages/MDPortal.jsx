@@ -428,6 +428,7 @@ function EmployeeDrawer({ emp, onClose }) {
           <Sec t="Employment" />
           <Row label="Job Title"    value={emp.job_title || emp.position} />
           <Row label="Department"   value={emp.department_name} />
+          <Row label="Site"         value={emp.site_name} />
           <Row label="Type"         value={typeLabel[emp.employment_type] || emp.employment_type} />
           <Row label="Status"       value={(emp.status || "").replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())} vc={ss.color} />
           <Row label="Employee No." value={emp.employee_number ? `#${emp.employee_number}` : null} />
@@ -801,13 +802,14 @@ function ProfilePage({ user, initials, onEdit, onPassword }) {
 
 // ─── Dashboard ─────────────────────────────────────────────────────────────────
 function Dashboard() {
-  const { stats, employees, departments, loading, errors, sites, fetchEmployeeDetail } = useMDPortal();
+  const { stats, employees, departments, sites, loading, errors, fetchEmployeeDetail } = useMDPortal();
 
   const [selectedEmp,   setSelectedEmp]   = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [search,        setSearch]        = useState("");
   const [deptFilter,    setDeptFilter]    = useState("all");
   const [typeFilter,    setTypeFilter]    = useState("all");
+  const [siteFilter,    setSiteFilter]    = useState("all");
 
   const handleEmpClick = async (emp) => {
     setLoadingDetail(true);
@@ -822,6 +824,13 @@ function Dashboard() {
     return departments.map(d => ({ value: String(d.id), label: d.name }));
   }, [departments]);
 
+  // Sites come straight from the HR-managed Site registry (/employees/sites/),
+  // the same list HR assigns employees to on the Sites & Departments page.
+  const siteOptions = useMemo(() => {
+    if (!sites) return [];
+    return sites.map(s => ({ value: String(s.id), label: s.name }));
+  }, [sites]);
+
   const filtered = useMemo(() => {
     if (!employees) return [];
     return employees.filter(e => {
@@ -835,9 +844,10 @@ function Dashboard() {
         (e.job_title || "").toLowerCase().includes(q);
       const matchDept = deptFilter === "all" || String(e.department) === deptFilter || (e.department_name || "").toLowerCase() === deptFilter.toLowerCase();
       const matchType = typeFilter === "all" || e.employment_type === typeFilter;
-      return matchSearch && matchDept && matchType;
+      const matchSite = siteFilter === "all" || String(e.site) === siteFilter || (e.site_name || "").toLowerCase() === siteFilter.toLowerCase();
+      return matchSearch && matchDept && matchType && matchSite;
     });
-  }, [employees, search, deptFilter, typeFilter]);
+  }, [employees, search, deptFilter, typeFilter, siteFilter]);
 
   const getFullName = emp => emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
   const getPhone    = emp => emp.phone || emp.phone_number || "";
@@ -917,6 +927,7 @@ function Dashboard() {
               </span>
               {selectedEmp.job_title && <span style={{ fontSize: 12, color: C.muted, fontFamily: "'DM Sans',sans-serif" }}>· {selectedEmp.job_title}</span>}
               {selectedEmp.department_name && <span style={{ fontSize: 12, color: C.muted, fontFamily: "'DM Sans',sans-serif" }}>· {selectedEmp.department_name}</span>}
+              {selectedEmp.site_name && <span style={{ fontSize: 12, color: C.muted, fontFamily: "'DM Sans',sans-serif" }}>· {selectedEmp.site_name}</span>}
             </div>
           </div>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -961,6 +972,7 @@ function Dashboard() {
             <SectionTitle>Employment Information</SectionTitle>
             <InfoRow label="Job Title"   value={selectedEmp.job_title || selectedEmp.position} />
             <InfoRow label="Department"  value={selectedEmp.department_name} />
+            <InfoRow label="Site"        value={selectedEmp.site_name} />
             <InfoRow label="Type"        value={typeLabel[selectedEmp.employment_type] || selectedEmp.employment_type} />
             <InfoRow label="Status"      value={(selectedEmp.status || "").replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())} vc={ss.color} />
             <InfoRow label="Date Joined" value={dateJoined ? dateJoined.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : null} />
@@ -1063,6 +1075,12 @@ function Dashboard() {
             <option value="full_time">Full-Time</option>
             <option value="part_time">Part-Time</option>
             <option value="contract">Contract</option>
+          </select>
+          {/* Site filter — reflects the Site registry HR maintains */}
+          <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}
+            style={{ padding: "9px 12px", border: `1.5px solid ${C.border}`, borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 160px" }}>
+            <option value="all">All Sites</option>
+            {siteOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
           <span style={{ fontSize: 12, color: C.dim, fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>{filtered.length} of {employees?.length ?? 0}</span>
         </div>

@@ -25,7 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)
+DEBUG = False
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
 
@@ -55,6 +55,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'core.middleware.RemoveServerHeadersMiddleware',
+    'core.middleware.MethodOverrideMiddleware',   # ← new: lets PATCH/PUT/DELETE ride in as POST
     'corsheaders.middleware.CorsMiddleware',   # ← add at the top
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -84,39 +86,27 @@ DATABASES = {
 }
 
 # Redis Cache
-# REDIS_URL defaults to a local Redis instance (db 1).
-# Override in .env for staging/production: REDIS_URL=redis://:password@host:6379/1
+#REDIS_URL defaults to a local Redis instance (db 1).
+#Override in .env for staging/production: REDIS_URL=redis://:password@host:6379/1
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/1'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'TIMEOUT': 300,  # 5 min default TTL; individual cache calls may override
+    }
+}
+
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
+
 # CACHES = {
 #     'default': {
-#         'BACKEND': 'django_redis.cache.RedisCache',
-#         'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/1'),
-#         'OPTIONS': {
-#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-#         },
-#         'TIMEOUT': 300,  # 5 min default TTL; individual cache calls may override
+#         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
 #     }
 # }
-REDIS_URL = config('REDIS_URL', default='')
-
-if REDIS_URL:
-    CACHES = {
-        'default': {
-            'BACKEND': 'django_redis.cache.RedisCache',
-            'LOCATION': REDIS_URL,
-            'OPTIONS': {
-                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            },
-            'TIMEOUT': 300,
-        }
-    }
-    SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-    SESSION_CACHE_ALIAS = 'default'
-else:
-    CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        }
-    }
 
 # Media files (profile pictures)
 import os
@@ -127,6 +117,13 @@ CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
     default='http://localhost:5173,http://127.0.0.1:5173'
 ).split(',')
+
+# Extra headers the browser is allowed to send cross-origin, on top of
+# corsheaders' own defaults (accept, authorization, content-type, etc.)
+# x-http-method-override is used by MethodOverrideMiddleware so PATCH/PUT/
+# DELETE requests can ride in as a plain POST.
+from corsheaders.defaults import default_headers
+CORS_ALLOW_HEADERS = list(default_headers) + ['x-http-method-override']
 
 AUTH_USER_MODEL = 'accounts.AdminUser'
 
@@ -219,6 +216,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
+STATIC_URL = 'static/'
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
@@ -242,3 +240,12 @@ SECURE_HSTS_PRELOAD     = config('SECURE_HSTS_PRELOAD',     default=False, cast=
 # Max in-memory size before Django spools to disk (default 2.5 MB → 10 MB)
 DATA_UPLOAD_MAX_MEMORY_SIZE  = 10 * 1024 * 1024   # 10 MB
 FILE_UPLOAD_MAX_MEMORY_SIZE  = 10 * 1024 * 1024   # 10 MB
+
+# Celery
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://127.0.0.1:6379/0')
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://127.0.0.1:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+
+# Remove server info headers
+SECURE_CONTENT_TYPE_NOSNIFF = True  # already on, keeps nosniff

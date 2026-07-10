@@ -22,6 +22,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
+import ExcelJS from "exceljs";
 import { apiFetch } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
 
@@ -581,30 +582,83 @@ function ZigRateModal({ currentRate, onClose, onSave }) {
 }
 
 // ── Download helpers ──────────────────────────────────────────────────────────
-function downloadCSV(rows, filename, currency, zigRate) {
+// Builds a .xlsx workbook where every column is auto-sized to fit its widest
+// cell (header included), instead of a fixed-width CSV.
+async function downloadExcel(rows, filename, currency, zigRate) {
   const currLabel = currency === "ZIG" ? "ZiG" : "USD";
-  const headers = ["Full Name", "Job Title", "Department", `Bank Name (${currLabel} Account)`, `Account Number (${currLabel} Account)`, "Days Attended", "Working Days", `Base Salary (${currLabel})`, `Net Salary (${currLabel})`, `Deduction (${currLabel})`, `Bonus (${currLabel})`, `Final Pay (${currLabel})`];
-  const lines = [headers.join(","), ...rows.map(r =>
-    [
-      `"${r.fullName}"`,
-      `"${r.jobTitle}"`,
-      `"${r.dept}"`,
-      `"${r.bankName}"`,
-      `"${r.bankAccount}"`,
-      r.daysAttended,
-      r.workingDays,
-      r.baseSalary.toFixed(2),
-      r.netSalary.toFixed(2),
-      r.deduction.toFixed(2),
-      r.bonus.toFixed(2),
-      r.finalPay.toFixed(2),
-    ].join(",")
-  )];
-  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const columns = [
+    { header: "Full Name", key: "fullName", money: false },
+    { header: "Job Title", key: "jobTitle", money: false },
+    { header: "Department", key: "dept", money: false },
+    { header: "Site", key: "site", money: false },
+    { header: "Pay Type", key: "payType", money: false },
+    { header: `Bank Name (${currLabel} Account)`, key: "bankName", money: false },
+    { header: `Account Number (${currLabel} Account)`, key: "bankAccount", money: false },
+    { header: "Days Attended", key: "daysAttended", money: false },
+    { header: "Working Days", key: "workingDays", money: false },
+    { header: `Base Salary / Daily Rate (${currLabel})`, key: "baseOrDaily", money: true },
+    { header: `Net Salary (${currLabel})`, key: "netSalary", money: true },
+    { header: `Deduction (${currLabel})`, key: "deduction", money: true },
+    { header: `Bonus (${currLabel})`, key: "bonus", money: true },
+    { header: `Final Pay (${currLabel})`, key: "finalPay", money: true },
+  ];
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Payroll");
+
+  ws.columns = columns.map(c => ({ header: c.header, key: c.key }));
+  ws.getRow(1).eachCell(cell => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0E3D82" } };
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" }, name: "Arial", size: 10.5 };
+    cell.alignment = { horizontal: "left" };
+  });
+
+  rows.forEach(r => {
+    const row = ws.addRow({
+      fullName: r.fullName,
+      jobTitle: r.jobTitle,
+      dept: r.dept,
+      site: r.site || "—",
+      payType: r.isDaily ? "Daily" : "Monthly",
+      bankName: r.bankName,
+      bankAccount: r.bankAccount,
+      daysAttended: r.daysAttended,
+      workingDays: r.workingDays,
+      baseOrDaily: Number((r.isDaily ? r.dailyRate : r.baseSalary).toFixed(2)),
+      netSalary: Number(r.netSalary.toFixed(2)),
+      deduction: Number(r.deduction.toFixed(2)),
+      bonus: Number(r.bonus.toFixed(2)),
+      finalPay: Number(r.finalPay.toFixed(2)),
+    });
+    row.font = { name: "Arial", size: 10 };
+    columns.forEach((c, i) => {
+      const cell = row.getCell(i + 1);
+      if (c.money) {
+        cell.numFmt = "#,##0.00";
+        cell.alignment = { horizontal: "right" };
+      }
+    });
+  });
+
+  // ── Auto-width: size each column to fit its widest cell (header included) ──
+  ws.columns.forEach((col, i) => {
+    let maxLen = String(columns[i].header).length;
+    col.eachCell?.({ includeEmpty: false }, cell => {
+      const val = cell.value === null || cell.value === undefined ? "" : String(cell.value);
+      if (val.length > maxLen) maxLen = val.length;
+    });
+    col.width = Math.min(Math.max(maxLen + 2, 10), 45);
+  });
+
+  ws.views = [{ state: "frozen", ySplit: 1 }];
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = filename;
-  a.click();
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
 }
 
 function downloadPDF(rows, monthLabel, currency, zigRate) {
@@ -631,7 +685,7 @@ function downloadPDF(rows, monthLabel, currency, zigRate) {
       <div class="sub">Month: ${monthLabel} &nbsp;|&nbsp; Currency: ${currency === "ZIG" ? `ZiG (1 USD = ${rate} ZiG)` : "USD"} &nbsp;|&nbsp; Generated: ${new Date().toLocaleString("en-GB")}</div>
       <table>
         <thead><tr>
-          <th>Full Name</th><th>Job Title</th><th>Dept</th>
+          <th>Full Name</th><th>Job Title</th><th>Dept</th><th>Site</th><th>Pay Type</th>
           <th>Bank Name (${currLabel} Account)</th><th>Account No. (${currLabel} Account)</th>
           <th>Attendance</th><th>Base Salary</th>
           <th class="money">Net Salary</th><th class="money">Deduction</th>
@@ -639,10 +693,11 @@ function downloadPDF(rows, monthLabel, currency, zigRate) {
         </tr></thead>
         <tbody>
           ${rows.map(r => `<tr>
-            <td>${r.fullName}</td><td>${r.jobTitle}</td><td>${r.dept}</td>
+            <td>${r.fullName}</td><td>${r.jobTitle}</td><td>${r.dept}</td><td>${r.site || "—"}</td>
+            <td>${r.isDaily ? "Daily" : "Monthly"}</td>
             <td>${r.bankName}</td><td>${r.bankAccount}</td>
             <td>${r.daysAttended}/${r.workingDays} days</td>
-            <td class="money">${fmtN(r.baseSalaryUSD)}</td>
+            <td class="money">${fmtN(r.isDaily ? r.dailyRateUSD : r.baseSalaryUSD)}${r.isDaily ? "/day" : ""}</td>
             <td class="money">${fmtN(r.netSalaryUSD)}</td>
             <td class="money">${fmtN(r.deductionUSD)}</td>
             <td class="money">${fmtN(r.bonusUSD)}</td>
@@ -668,6 +723,7 @@ export default function HRPayrollPage({ showToast }) {
   const {
     employees: ctxEmployees,
     departments: ctxDepartments,
+    sites: ctxSites,
     loading: ctxLoading,
   } = useHRPortal();
 
@@ -748,7 +804,9 @@ export default function HRPayrollPage({ showToast }) {
   // ── Filters ────────────────────────────────────────────────────────────────
   const [search,       setSearch]       = useState("");
   const [deptFilter,   setDeptFilter]   = useState("all");
+  const [siteFilter,   setSiteFilter]   = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [payTypeFilter, setPayTypeFilter] = useState("all"); // "all" | "monthly" | "daily"
   const [downloadOpen, setDownloadOpen] = useState(false);
   const dlRef = useRef();
 
@@ -782,6 +840,11 @@ export default function HRPayrollPage({ showToast }) {
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const departments = ctxDepartments || [];
+  const sites       = ctxSites || [];
+  const siteName = (val) => {
+    const found = sites.find(s => String(s.id) === val);
+    return found ? found.name : val;
+  };
   const workingDays = getWorkingDaysInMonth(viewYear, viewMonth);
 
   const payrollMap = useMemo(() => {
@@ -804,19 +867,38 @@ export default function HRPayrollPage({ showToast }) {
     return m;
   }, [attendanceAll, viewYear, viewMonth]);
 
+  // Daily-rate employees are paid for every day they actually worked, including weekends —
+  // so this map does NOT filter out non-working days like attendanceMap above does.
+  const attendanceAllDaysMap = useMemo(() => {
+    const m = {};
+    attendanceAll.forEach(rec => {
+      if (rec.status !== "present" && rec.status !== "late" && rec.status !== "half_day") return;
+      const recDate = new Date(rec.date);
+      if (recDate.getFullYear() !== viewYear || recDate.getMonth() !== viewMonth) return;
+      const empId = typeof rec.employee === "object" ? rec.employee.id : rec.employee;
+      m[empId] = (m[empId] || 0) + (rec.status === "half_day" ? 0.5 : 1);
+    });
+    return m;
+  }, [attendanceAll, viewYear, viewMonth]);
+
+  const daysInViewedMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
   const enriched = useMemo(() => {
     if (!ctxEmployees) return [];
     return ctxEmployees.map(emp => {
       const payrollEntry  = payrollMap[emp.id] || {};
-      const monthlySalary = parseFloat(payrollEntry.basic_salary) || 0; 
+      const isDaily        = payrollEntry.pay_type === 'daily';
+      const monthlySalary  = isDaily ? 0 : (parseFloat(payrollEntry.basic_salary) || 0);
       const bankName      = currency === "ZIG"
         ? (payrollEntry.bank_name_zig    || "No ZiG bank on file")
         : (payrollEntry.bank_name_usd    || "No USD bank on file");
       const bankAccount   = currency === "ZIG"
         ? (payrollEntry.bank_account_zig || "—")
         : (payrollEntry.bank_account_usd || "—");
-      const dailyRate     = workingDays > 0 ? monthlySalary / workingDays : 0;
-      const daysAttended  = attendanceMap[emp.id] || 0;
+      const dailyRate     = isDaily
+        ? (parseFloat(payrollEntry.daily_rate) || 0)
+        : (workingDays > 0 ? monthlySalary / workingDays : 0);
+      const daysAttended  = isDaily ? (attendanceAllDaysMap[emp.id] || 0) : (attendanceMap[emp.id] || 0);
       const netSalary     = dailyRate * daysAttended;
       const edits         = payrollEdits[emp.id] || {};
       const deduction     = parseFloat(edits.deduction) || 0;
@@ -824,8 +906,9 @@ export default function HRPayrollPage({ showToast }) {
       const finalPay      = Math.max(0, netSalary - deduction + bonus);
       const fullName      = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
       const deptName      = emp.department_name || departments.find(d => d.id === emp.department)?.name || "—";
+      const siteNameVal   = emp.site_name || sites.find(s => s.id === emp.site)?.name || "—";
       return {
-        ...emp, fullName, deptName,
+        ...emp, fullName, deptName, siteNameVal, isDaily,
         monthlySalary, dailyRate, daysAttended,
         netSalary, deduction, bonus, finalPay,
         deductionStr: edits.deduction || "",
@@ -834,7 +917,7 @@ export default function HRPayrollPage({ showToast }) {
         bankName, bankAccount,
       };
     });
-  }, [ctxEmployees, payrollMap, attendanceMap, workingDays, departments, payrollEdits, currency]);
+  }, [ctxEmployees, payrollMap, attendanceMap, attendanceAllDaysMap, workingDays, departments, sites, payrollEdits, currency]);
 
   const filtered = useMemo(() => {
     return enriched.filter(e => {
@@ -846,10 +929,14 @@ export default function HRPayrollPage({ showToast }) {
       const matchDept = deptFilter === "all" ||
         String(e.department) === deptFilter ||
         (e.department_name || "").toLowerCase() === deptFilter.toLowerCase();
+      const matchSite = siteFilter === "all" ||
+        String(e.site) === siteFilter ||
+        (e.site_name || "").toLowerCase() === siteFilter.toLowerCase();
       const matchStatus = statusFilter === "all" || e.status === statusFilter;
-      return matchSearch && matchDept && matchStatus;
+      const matchPayType = payTypeFilter === "all" || (payTypeFilter === "daily" ? e.isDaily : !e.isDaily);
+      return matchSearch && matchDept && matchSite && matchStatus && matchPayType;
     });
-  }, [enriched, search, deptFilter, statusFilter]);
+  }, [enriched, search, deptFilter, siteFilter, statusFilter, payTypeFilter]);
 
   // ── Summary stats ─────────────────────────────────────────────────────────
   const totalNetPayable = filtered.reduce((s, e) => s + e.finalPay, 0);
@@ -864,17 +951,21 @@ export default function HRPayrollPage({ showToast }) {
     fullName: e.fullName,
     jobTitle: e.job_title || "—",
     dept: e.deptName,
+    site: e.siteNameVal,
     bankName: e.bankName,
     bankAccount: e.bankAccount,
+    isDaily: e.isDaily,
     daysAttended: e.daysAttended,
-    workingDays,
+    workingDays: e.isDaily ? daysInViewedMonth : workingDays,
     baseSalary: currency === "ZIG" ? e.monthlySalary * (parseFloat(zigRate) || 1) : e.monthlySalary,
+    dailyRate:  currency === "ZIG" ? e.dailyRate   * (parseFloat(zigRate) || 1) : e.dailyRate,
     netSalary:  currency === "ZIG" ? e.netSalary  * (parseFloat(zigRate) || 1) : e.netSalary,
     deduction:  currency === "ZIG" ? e.deduction  * (parseFloat(zigRate) || 1) : e.deduction,
     bonus:      currency === "ZIG" ? e.bonus       * (parseFloat(zigRate) || 1) : e.bonus,
     finalPay:   currency === "ZIG" ? e.finalPay   * (parseFloat(zigRate) || 1) : e.finalPay,
     // Raw USD for PDF template
     baseSalaryUSD: e.monthlySalary,
+    dailyRateUSD:  e.dailyRate,
     netSalaryUSD:  e.netSalary,
     deductionUSD:  e.deduction,
     bonusUSD:      e.bonus,
@@ -1068,8 +1159,8 @@ export default function HRPayrollPage({ showToast }) {
                   overflow: "hidden", zIndex: 200,
                 }}>
                   {[
-                    { label: "Download as CSV", icon: "📊", action: () => { downloadCSV(tableRows, `payroll-${monthLabel.replace(/ /g, "-")}.csv`, currency, zigRate); setDownloadOpen(false); } },
-                    { label: "Download as PDF", icon: "📄", action: () => { downloadPDF(tableRows, monthLabel, currency, zigRate); setDownloadOpen(false); } },
+                    { label: `Download as Excel${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}${siteFilter !== "all" ? ` — ${siteName(siteFilter)}` : ""}`, icon: "📊", action: () => { downloadExcel(tableRows, `payroll${payTypeFilter !== "all" ? `-${payTypeFilter}` : ""}${siteFilter !== "all" ? `-${siteName(siteFilter).replace(/\s+/g, "_")}` : ""}-${monthLabel.replace(/ /g, "-")}.xlsx`, currency, zigRate); setDownloadOpen(false); } },
+                    { label: `Download as PDF${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}`, icon: "📄", action: () => { downloadPDF(tableRows, monthLabel, currency, zigRate); setDownloadOpen(false); } },
                   ].map(item => (
                     <button key={item.label} onClick={item.action} style={{
                       display: "flex", alignItems: "center", gap: 10,
@@ -1197,6 +1288,41 @@ export default function HRPayrollPage({ showToast }) {
           background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0",
           boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden",
         }}>
+          {/* Pay Type tabs */}
+          <div className="pr-paytype-tabs" style={{ display: "flex", gap: 6, padding: "16px 20px 0" }}>
+            {[
+              ["all",     "All Employees", enriched.length],
+              ["monthly", "Monthly Salary", enriched.filter(e => !e.isDaily).length],
+              ["daily",   "Daily Rate",     enriched.filter(e => e.isDaily).length],
+            ].map(([val, label, count]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setPayTypeFilter(val)}
+                style={{
+                  padding: "9px 16px", borderRadius: "10px 10px 0 0", cursor: "pointer",
+                  border: "1.5px solid " + (payTypeFilter === val ? "#1557b0" : "transparent"),
+                  borderBottom: payTypeFilter === val ? "1.5px solid #fff" : "1.5px solid transparent",
+                  marginBottom: -2,
+                  background: payTypeFilter === val ? "#fff" : "#f8faff",
+                  color: payTypeFilter === val ? "#1557b0" : "#64748b",
+                  fontWeight: 600, fontSize: 12.5, fontFamily: "'DM Sans',sans-serif",
+                  display: "flex", alignItems: "center", gap: 7, transition: "all 0.12s",
+                }}
+              >
+                {val === "daily" && <span style={{ fontSize: 10 }}>🗓️</span>}
+                {label}
+                <span style={{
+                  fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99,
+                  background: payTypeFilter === val ? "#eff6ff" : "#eef2f7",
+                  color: payTypeFilter === val ? "#1557b0" : "#94a3b8",
+                }}>
+                  {count}
+                </span>
+              </button>
+            ))}
+          </div>
+
           {/* Filters */}
           <div className="pr-filters" style={{ padding: "18px 20px 14px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             {/* Search */}
@@ -1223,6 +1349,12 @@ export default function HRPayrollPage({ showToast }) {
             <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 170px" }}>
               <option value="all">All Departments</option>
               {departments.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
+            </select>
+
+            {/* Site filter */}
+            <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 170px" }}>
+              <option value="all">All Sites</option>
+              {sites.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
             </select>
 
             {/* Status filter */}
@@ -1320,24 +1452,36 @@ export default function HRPayrollPage({ showToast }) {
                       {/* Job Title */}
                       <td style={{ padding: "11px 14px", color: "#334155", fontWeight: 500, fontSize: 12.5, whiteSpace: "nowrap" }}>
                         {emp.job_title || emp.position || "—"}
+                        {emp.isDaily && (
+                          <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, color: "#7c3aed", background: "#f3e8ff", padding: "2px 7px", borderRadius: 99, letterSpacing: "0.3px", textTransform: "uppercase" }}>
+                            Daily
+                          </span>
+                        )}
                       </td>
 
                       {/* Attendance */}
                       <td style={{ padding: "11px 14px", minWidth: 130 }}>
-                        <AttBar attended={emp.daysAttended} total={workingDays} />
+                        <AttBar attended={emp.daysAttended} total={emp.isDaily ? daysInViewedMonth : workingDays} />
                       </td>
 
                       {/* Base Salary */}
                       <td style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", fontSize: 12.5, color: emp.monthlySalary > 0 ? "#0f172a" : "#cbd5e1", whiteSpace: "nowrap" }}>
-                        {emp.monthlySalary > 0 ? fmtV(emp.monthlySalary) : <span style={{ color: "#cbd5e1", fontFamily: "'DM Sans',sans-serif" }}>Not set</span>}
+                        {emp.isDaily
+                          ? <span style={{ color: "#cbd5e1", fontFamily: "'DM Sans',sans-serif" }}>{emp.dailyRate > 0 ? `${fmtV(emp.dailyRate)}/day` : "Not set"}</span>
+                          : (emp.monthlySalary > 0 ? fmtV(emp.monthlySalary) : <span style={{ color: "#cbd5e1", fontFamily: "'DM Sans',sans-serif" }}>Not set</span>)}
                       </td>
 
                       {/* Net Salary (attendance-based) */}
                       <td style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", fontSize: 12.5, color: emp.netSalary > 0 ? "#0f172a" : "#cbd5e1", whiteSpace: "nowrap" }}>
                         {emp.netSalary > 0 ? fmtV(emp.netSalary) : "—"}
-                        {emp.netSalary > 0 && emp.monthlySalary > 0 && (
+                        {emp.netSalary > 0 && !emp.isDaily && emp.monthlySalary > 0 && (
                           <div style={{ fontSize: 10, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", marginTop: 1, textAlign: "right" }}>
                             {Math.round((emp.daysAttended / workingDays) * 100)}% of base
+                          </div>
+                        )}
+                        {emp.netSalary > 0 && emp.isDaily && (
+                          <div style={{ fontSize: 10, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", marginTop: 1, textAlign: "right" }}>
+                            {emp.daysAttended} day{emp.daysAttended === 1 ? "" : "s"} worked
                           </div>
                         )}
                       </td>

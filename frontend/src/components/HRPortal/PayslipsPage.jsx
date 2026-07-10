@@ -244,20 +244,25 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
   const bonus           = parseFloat(edits?.bonus)           || 0;
   const deductionReason = edits?.deductionReason             || "";
 
+  const isDaily       = payrollRecord?.pay_type === 'daily';
   const workingDays   = getWorkingDays(year, month);
-  const basicSalary   = parseFloat(payrollRecord?.basic_salary) || 0;
+  const basicSalary   = isDaily ? 0 : (parseFloat(payrollRecord?.basic_salary) || 0);
   const allowances    = parseFloat(payrollRecord?.allowances)   || 0;
-  const dailyRate     = workingDays > 0 ? basicSalary / workingDays : 0;
+  const dailyRate     = isDaily
+    ? (parseFloat(payrollRecord?.daily_rate) || 0)
+    : (workingDays > 0 ? basicSalary / workingDays : 0);
   const hourlyRate    = FULL_HOURS  > 0 ? dailyRate   / FULL_HOURS  : 0;
+  const daysInMonth   = new Date(year, month + 1, 0).getDate();
 
   const dayRecords = useMemo(() => {
     return attendanceRecs
       .filter(r => {
         const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
-        return empId === emp.id && isWorkingDay(r.date);
+        // Daily-rate employees are paid for every day worked, weekends included.
+        return empId === emp.id && (isDaily || isWorkingDay(r.date));
       })
       .sort((a,b) => a.date.localeCompare(b.date));
-  }, [attendanceRecs, emp.id]);
+  }, [attendanceRecs, emp.id, isDaily]);
 
   const presentRecs  = dayRecords.filter(r => ["present","late","half_day"].includes(r.status));
   const absentRecs   = dayRecords.filter(r => r.status === "absent");
@@ -448,7 +453,7 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
               <td style={labelCell}>Bank Account</td>
               <td style={{ ...valueCell, fontFamily: "monospace", letterSpacing: "0.04em" }}>{bankAcct}</td>
               <td style={labelCell}>Attendance</td>
-              <td style={valueCell}>{daysAttended} / {workingDays} days
+              <td style={valueCell}>{daysAttended} / {isDaily ? daysInMonth : workingDays} days
                 {daysAbsent > 0 && <span style={{ marginLeft: 8, color: T.red, fontSize: 11 }}>({daysAbsent} absent)</span>}
               </td>
             </tr>
@@ -466,10 +471,10 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
           </tr>
         </thead>
         <tbody>
-          {/* Basic salary row */}
+          {/* Basic salary / daily rate row */}
           <tr>
-            <td style={td()}>Basic Salary (Monthly)</td>
-            <td style={td(true)}>{fmtUSD(basicSalary)}</td>
+            <td style={td()}>{isDaily ? "Daily Rate" : "Basic Salary (Monthly)"}</td>
+            <td style={td(true)}>{isDaily ? `${fmtUSD(dailyRate)}/day` : fmtUSD(basicSalary)}</td>
             <td style={td(true)}>—</td>
           </tr>
           {/* Attendance-prorated row */}
@@ -477,7 +482,7 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
             <td style={td()}>
               Attendance Earnings
               <span style={{ marginLeft: 8, fontSize: 11, color: T.faint }}>
-                ({daysAttended} of {workingDays} days × {fmtUSD(dailyRate)}/day)
+                ({daysAttended} of {isDaily ? daysInMonth : workingDays} days × {fmtUSD(dailyRate)}/day)
               </span>
             </td>
             <td style={td(true)}>{fmtUSD(attendanceEarning)}</td>
@@ -618,16 +623,20 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
   const bonus           = parseFloat(edits?.bonus)           || 0;
   const deductionReason = edits?.deductionReason             || "";
 
+  const isDaily            = payrollRecord?.pay_type === 'daily';
   const workingDays       = getWorkingDays(year, month);
-  const basicSalary       = parseFloat(payrollRecord?.basic_salary) || 0;
+  const basicSalary       = isDaily ? 0 : (parseFloat(payrollRecord?.basic_salary) || 0);
   const allowances        = parseFloat(payrollRecord?.allowances)   || 0;
-  const dailyRate         = workingDays > 0 ? basicSalary / workingDays : 0;
+  const dailyRate         = isDaily
+    ? (parseFloat(payrollRecord?.daily_rate) || 0)
+    : (workingDays > 0 ? basicSalary / workingDays : 0);
   const hourlyRate        = FULL_HOURS  > 0 ? dailyRate   / FULL_HOURS  : 0;
+  const daysInMonth       = new Date(year, month + 1, 0).getDate();
 
   const empRecs = attAll
     .filter(r => {
       const eid = typeof r.employee === "object" ? r.employee.id : r.employee;
-      return eid === emp.id && isWorkingDay(r.date);
+      return eid === emp.id && (isDaily || isWorkingDay(r.date));
     })
     .sort((a,b) => a.date.localeCompare(b.date));
 
@@ -714,7 +723,7 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
       </tr>
       ${bankAcct !== "—" ? `<tr>
         <td style="${labelSt}">Bank Account</td><td style="${valueSt}font-family:monospace;letter-spacing:.04em">${bankAcct}</td>
-        <td style="${labelSt}">Attendance</td><td style="${valueSt}">${daysAttended} / ${workingDays} days${daysAbsent > 0 ? ` <span style="margin-left:8px;color:${T.red};font-size:11px">(${daysAbsent} absent)</span>` : ""}</td>
+        <td style="${labelSt}">Attendance</td><td style="${valueSt}">${daysAttended} / ${isDaily ? daysInMonth : workingDays} days${daysAbsent > 0 ? ` <span style="margin-left:8px;color:${T.red};font-size:11px">(${daysAbsent} absent)</span>` : ""}</td>
       </tr>` : ""}
     </tbody>
   </table>
@@ -729,12 +738,12 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
     </thead>
     <tbody>
       <tr>
-        <td style="${tdSt}">Basic Salary (Monthly)</td>
-        <td style="${tdSt}text-align:right;font-family:monospace">${fmtUSD(basicSalary)}</td>
+        <td style="${tdSt}">${isDaily ? "Daily Rate" : "Basic Salary (Monthly)"}</td>
+        <td style="${tdSt}text-align:right;font-family:monospace">${isDaily ? `${fmtUSD(dailyRate)}/day` : fmtUSD(basicSalary)}</td>
         <td style="${tdSt}text-align:right">—</td>
       </tr>
       <tr>
-        <td style="${tdSt}">Attendance Earnings <span style="margin-left:8px;font-size:11px;color:${T.faint}">(${daysAttended} of ${workingDays} days × ${fmtUSD(dailyRate)}/day)</span></td>
+        <td style="${tdSt}">Attendance Earnings <span style="margin-left:8px;font-size:11px;color:${T.faint}">(${daysAttended} of ${isDaily ? daysInMonth : workingDays} days × ${fmtUSD(dailyRate)}/day)</span></td>
         <td style="${tdSt}text-align:right;font-family:monospace">${fmtUSD(attendanceEarning)}</td>
         <td style="${tdSt}text-align:right">—</td>
       </tr>

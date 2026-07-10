@@ -972,15 +972,18 @@ function _EditBankSelect({ value, onChange }) {
 function EditEmployeeModal({ employee, departments, sites, onClose, showToast, onSave }) {
   const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
   const [busy, setBusy] = useState(false);
+  const [payType, setPayType] = useState((employee?.payroll?.pay_type || employee?.pay_type) || 'monthly');
+  const isDaily = payType === 'daily';
   const [tab, setTab] = useState("banking"); // "banking" | "personal" | "employment"
 
   const [form, setForm] = useState({
     // Banking (payroll) — separate USD and ZiG accounts
-    bank_name_usd:    employee?.payroll?.bank_name_usd    || employee?.payroll?.bank_name    || "",
-    bank_account_usd: employee?.payroll?.bank_account_usd || employee?.payroll?.bank_account || "",
-    bank_name_zig:    employee?.payroll?.bank_name_zig    || "",
-    bank_account_zig: employee?.payroll?.bank_account_zig || "",
+    bank_name_usd:    employee?.payroll?.bank_name_usd    || employee?.payroll?.bank_name    || employee?.bank_name_usd    || "",
+    bank_account_usd: employee?.payroll?.bank_account_usd || employee?.payroll?.bank_account || employee?.bank_account_usd || "",
+    bank_name_zig:    employee?.payroll?.bank_name_zig    || employee?.bank_name_zig    || "",
+    bank_account_zig: employee?.payroll?.bank_account_zig || employee?.bank_account_zig || "",
     monthly_salary: employee?.payroll?.basic_salary || employee?.basic_salary || "",
+    daily_rate:     employee?.payroll?.daily_rate   || employee?.daily_rate   || "",
     // Personal
     phone_number:  employee?.phone_number  || "",
     email:         employee?.email         || "",
@@ -1013,6 +1016,12 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
   ];
 
   const save = async () => {
+    if (isDaily && (!form.daily_rate || parseFloat(form.daily_rate) <= 0)) {
+      showToast("Please enter a daily rate greater than 0.", "err"); return;
+    }
+    if (!isDaily && (!form.monthly_salary || parseFloat(form.monthly_salary) <= 0)) {
+      showToast("Please enter a monthly salary greater than 0.", "err"); return;
+    }
     setBusy(true);
     try {
       // 1. Save employee fields (PATCH)
@@ -1046,7 +1055,10 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
       // 2. Save payroll (PATCH or POST)
       const prBody = JSON.stringify({
         employee: employee.id,
-        basic_salary: parseFloat(form.monthly_salary) || 0,
+        pay_type: payType,
+        ...(isDaily
+          ? { daily_rate: parseFloat(form.daily_rate) || 0, basic_salary: null }
+          : { basic_salary: parseFloat(form.monthly_salary) || 0, daily_rate: null }),
         allowances: 0, deductions: 0,
         bank_name_usd:    form.bank_name_usd    || "",
         bank_account_usd: form.bank_account_usd || "",
@@ -1054,21 +1066,31 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
         bank_account_zig: form.bank_account_zig || "",
         currency: "USD", updated_by: "HR",
       });
-      const prPatch = await apiFetch(`${API}/payroll/employee/${employee.id}/`, { method: "PATCH", body: prBody });
-      if (!prPatch.ok) {
-        await apiFetch(`${API}/payroll/`, { method: "POST", body: prBody });
+      let prRes = await apiFetch(`${API}/payroll/employee/${employee.id}/`, { method: "PATCH", body: prBody });
+      if (!prRes.ok) {
+        // No payroll record exists yet for this employee (404) — create one instead.
+        prRes = await apiFetch(`${API}/payroll/`, { method: "POST", body: prBody });
+      }
+      if (!prRes.ok) {
+        const prErr = await prRes.json().catch(() => ({}));
+        showToast(Object.values(prErr).flat().join(", ") || "Employee details saved, but payroll/banking info failed to save.", "err");
+        setBusy(false); return;
       }
       const payrollData = {
         bank_name_usd: form.bank_name_usd, bank_account_usd: form.bank_account_usd,
         bank_name_zig: form.bank_name_zig, bank_account_zig: form.bank_account_zig,
-        basic_salary: parseFloat(form.monthly_salary) || 0,
+        pay_type: payType,
+        basic_salary: isDaily ? null : (parseFloat(form.monthly_salary) || 0),
+        daily_rate:   isDaily ? (parseFloat(form.daily_rate) || 0) : null,
       };
 
       showToast("Employee updated successfully.");
       onSave({
         ...updatedEmp,
         payroll: payrollData,
-        basic_salary: parseFloat(form.monthly_salary) || 0,
+        pay_type: payrollData.pay_type,
+        basic_salary: payrollData.basic_salary,
+        daily_rate: payrollData.daily_rate,
         nok_full_name: form.nok_full_name,
         nok_relationship: form.nok_relationship,
         nok_phone: form.nok_phone,
@@ -1121,12 +1143,24 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
         <div style={{ padding:24,overflowY:"auto",flex:1 }}>
           {tab === "banking" && (
             <>
-              <div style={{ background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:10,padding:"12px 14px",marginBottom:18 }}>
-                <div style={{ fontSize:11,fontWeight:700,color:"#0891b2",letterSpacing:"0.8px",textTransform:"uppercase",fontFamily:"'DM Sans',sans-serif",marginBottom:2 }}>
-                  Banking Details
+              <div style={{ background: isDaily ? "#f3e8ff" : "#f0f9ff", border: "1px solid " + (isDaily ? "#e9d5ff" : "#bae6fd"), borderRadius:10,padding:"12px 14px",marginBottom:18 }}>
+                <div style={{ fontSize:11,fontWeight:700,color: isDaily ? "#7c3aed" : "#0891b2",letterSpacing:"0.8px",textTransform:"uppercase",fontFamily:"'DM Sans',sans-serif",marginBottom:8 }}>
+                  Pay Type
+                </div>
+                <div style={{ display:"flex",gap:8,marginBottom:8 }}>
+                  <button type="button" onClick={() => setPayType("monthly")}
+                    style={{ flex:1,padding:"8px 12px",borderRadius:8,border:"1.5px solid "+(!isDaily?"#1557b0":"#e2e8f0"),background:!isDaily?"#eff6ff":"#fff",color:!isDaily?"#1557b0":"#64748b",fontSize:12.5,fontWeight:600,fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
+                    Monthly Salary
+                  </button>
+                  <button type="button" onClick={() => setPayType("daily")}
+                    style={{ flex:1,padding:"8px 12px",borderRadius:8,border:"1.5px solid "+(isDaily?"#7c3aed":"#e2e8f0"),background:isDaily?"#f5f3ff":"#fff",color:isDaily?"#7c3aed":"#64748b",fontSize:12.5,fontWeight:600,fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
+                    Daily Rate
+                  </button>
                 </div>
                 <div style={{ fontSize:12,color:"#64748b",fontFamily:"'DM Sans',sans-serif" }}>
-                  Used for payroll processing and salary disbursement.
+                  {isDaily
+                    ? "This employee is paid per day worked, not a fixed monthly salary."
+                    : "Used for payroll processing and salary disbursement."}
                 </div>
               </div>
               <div style={{ fontSize:10.5,fontWeight:700,color:"#1557b0",letterSpacing:"0.5px",textTransform:"uppercase",marginBottom:8,fontFamily:"'DM Sans',sans-serif" }}>
@@ -1154,17 +1188,31 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
                   <Input value={form.bank_account_zig} onChange={set("bank_account_zig")} placeholder="e.g. 0987654321" />
                 </Field>
               </div>
-              <Field label="Monthly Salary (USD)">
-                <div style={{ position:"relative" }}>
-                  <span style={{ position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,fontWeight:700,color:"#1557b0",pointerEvents:"none",fontFamily:"'DM Sans',sans-serif" }}>$</span>
-                  <input style={{ ...inputStyle,paddingLeft:28 }} type="number" min="0" step="0.01"
-                    value={form.monthly_salary} onChange={e => set("monthly_salary")(e.target.value)}
-                    placeholder="0.00"
-                    onFocus={e => { e.target.style.borderColor="#1557b0"; e.target.style.boxShadow="0 0 0 3px rgba(21,87,176,0.1)"; }}
-                    onBlur={e => { e.target.style.borderColor="#e2e8f0"; e.target.style.boxShadow="none"; }}
-                  />
-                </div>
-              </Field>
+              {isDaily ? (
+                <Field label="Daily Rate (USD)">
+                  <div style={{ position:"relative" }}>
+                    <span style={{ position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,fontWeight:700,color:"#7c3aed",pointerEvents:"none",fontFamily:"'DM Sans',sans-serif" }}>$</span>
+                    <input style={{ ...inputStyle,paddingLeft:28 }} type="number" min="0" step="0.01"
+                      value={form.daily_rate} onChange={e => set("daily_rate")(e.target.value)}
+                      placeholder="0.00"
+                      onFocus={e => { e.target.style.borderColor="#7c3aed"; e.target.style.boxShadow="0 0 0 3px rgba(124,58,237,0.1)"; }}
+                      onBlur={e => { e.target.style.borderColor="#e2e8f0"; e.target.style.boxShadow="none"; }}
+                    />
+                  </div>
+                </Field>
+              ) : (
+                <Field label="Monthly Salary (USD)">
+                  <div style={{ position:"relative" }}>
+                    <span style={{ position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,fontWeight:700,color:"#1557b0",pointerEvents:"none",fontFamily:"'DM Sans',sans-serif" }}>$</span>
+                    <input style={{ ...inputStyle,paddingLeft:28 }} type="number" min="0" step="0.01"
+                      value={form.monthly_salary} onChange={e => set("monthly_salary")(e.target.value)}
+                      placeholder="0.00"
+                      onFocus={e => { e.target.style.borderColor="#1557b0"; e.target.style.boxShadow="0 0 0 3px rgba(21,87,176,0.1)"; }}
+                      onBlur={e => { e.target.style.borderColor="#e2e8f0"; e.target.style.boxShadow="none"; }}
+                    />
+                  </div>
+                </Field>
+              )}
             </>
           )}
 

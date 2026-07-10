@@ -109,14 +109,31 @@ export default function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit,
     ? Math.max(0, (now.getFullYear() - dateJoined.getFullYear()) * 12 + (now.getMonth() - dateJoined.getMonth()))
     : null;
 
-  // Fetch payroll for this employee (bank + salary details)
+  // ── Fetch payroll for this employee (bank + salary details) ────────────────
+  // payroll        → the payroll record itself, or null if the employee has
+  //                  none yet (a 404 from the API is a normal, expected case
+  //                  — not every employee has salary/banking set up).
+  // payrollChecked → true once we know the *outcome* (found, not found, or
+  //                  errored) so the UI can stop showing "Loading payroll…"
+  //                  and show either the details or an explicit empty state,
+  //                  instead of spinning forever when there's simply nothing
+  //                  to load.
   const [payroll, setPayroll] = useState(emp.payroll || null);
+  const [payrollChecked, setPayrollChecked] = useState(!!emp.payroll);
+
   useEffect(() => {
-    if (payroll) return; // already have it
+    if (emp.payroll) {
+      setPayroll(emp.payroll);
+      setPayrollChecked(true);
+      return;
+    }
+    setPayroll(null);
+    setPayrollChecked(false);
     apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/payroll/employee/${emp.id}/`)
-      .then(r => r.ok ? r.json() : null)
+      .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d) setPayroll(d); })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setPayrollChecked(true));
   }, [emp.id]);
 
   const InfoRow = ({ label, value, valueColor }) => (
@@ -377,7 +394,17 @@ export default function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit,
         <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0",
           boxShadow: "0 1px 6px rgba(0,0,0,0.05)", padding: "22px 28px" }}>
           <SectionTitle>Payroll &amp; Bank</SectionTitle>
-          {payroll ? (
+
+          {!payrollChecked ? (
+            // Still waiting on the API call to resolve either way.
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 0", gap: 8 }}>
+              <div style={{ width: 28, height: 28, border: "2.5px solid #e8edf8", borderTopColor: "#1557b0",
+                borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+              <span style={{ color: "#cbd5e1", fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
+                Loading payroll…
+              </span>
+            </div>
+          ) : payroll ? (
             <>
               {/* Banking Details */}
               <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10,
@@ -434,11 +461,18 @@ export default function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit,
               )}
             </>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 0", gap: 8 }}>
-              <div style={{ width: 28, height: 28, border: "2.5px solid #e8edf8", borderTopColor: "#1557b0",
-                borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-              <span style={{ color: "#cbd5e1", fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
-                Loading payroll…
+            // Checked, and there is genuinely no payroll record for this
+            // employee yet (backend returned 404) — show an explicit empty
+            // state instead of spinning forever.
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center",
+              justifyContent: "center", padding: "28px 0", gap: 10, textAlign: "center" }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+                stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round">
+                <rect x="2" y="5" width="20" height="14" rx="2" /><line x1="2" y1="10" x2="22" y2="10" />
+              </svg>
+              <span style={{ fontSize: 13, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", lineHeight: 1.5 }}>
+                No salary or banking details on file yet.
+                {onEdit && <><br />Add them via <strong>Edit Employee</strong>.</>}
               </span>
             </div>
           )}
@@ -460,7 +494,7 @@ export default function EmployeeDetailView({ emp, onBack, loadingDetail, onEdit,
       {/* Documents — CV + Education Certificate + any attachments */}
       {(() => {
         // Build document list from model fields: cv, highest_education_certificate, plus any attached docs array
-        const apiBase = "${import.meta.env.VITE_API_BASE_URL}";
+        const apiBase = import.meta.env.VITE_API_BASE_URL;
         const docList = [];
         if (emp.cv) {
           const url = emp.cv.startsWith("http") ? emp.cv : `${apiBase}${emp.cv.startsWith("/") ? "" : "/media/"}${emp.cv}`;
