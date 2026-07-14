@@ -582,38 +582,64 @@ function ZigRateModal({ currentRate, onClose, onSave }) {
 }
 
 // ── Download helpers ──────────────────────────────────────────────────────────
-// Builds a .xlsx workbook where every column is auto-sized to fit its widest
-// cell (header included), instead of a fixed-width CSV.
+// Builds a .xlsx workbook. When rows span more than one site (i.e. the
+// "All Sites" filter is active) it produces one worksheet per site — same
+// pattern as the attendance register — plus a Summary tab up front. When
+// only a single site is present (a specific site filter was applied) it
+// stays as a single "Payroll" sheet, same as before.
 async function downloadExcel(rows, filename, currency, zigRate) {
   const currLabel = currency === "ZIG" ? "ZiG" : "USD";
   const columns = [
-    { header: "Full Name", key: "fullName", money: false },
-    { header: "Job Title", key: "jobTitle", money: false },
-    { header: "Department", key: "dept", money: false },
-    { header: "Site", key: "site", money: false },
-    { header: "Pay Type", key: "payType", money: false },
-    { header: `Bank Name (${currLabel} Account)`, key: "bankName", money: false },
-    { header: `Account Number (${currLabel} Account)`, key: "bankAccount", money: false },
-    { header: "Days Attended", key: "daysAttended", money: false },
-    { header: "Working Days", key: "workingDays", money: false },
-    { header: `Base Salary / Daily Rate (${currLabel})`, key: "baseOrDaily", money: true },
-    { header: `Net Salary (${currLabel})`, key: "netSalary", money: true },
-    { header: `Deduction (${currLabel})`, key: "deduction", money: true },
-    { header: `Bonus (${currLabel})`, key: "bonus", money: true },
-    { header: `Final Pay (${currLabel})`, key: "finalPay", money: true },
+    { header: "Full Name", key: "fullName", money: false, total: false },
+    { header: "Job Title", key: "jobTitle", money: false, total: false },
+    { header: "Department", key: "dept", money: false, total: false },
+    { header: "Site", key: "site", money: false, total: false },
+    { header: "Pay Type", key: "payType", money: false, total: false },
+    { header: `Bank Name (${currLabel} Account)`, key: "bankName", money: false, total: false },
+    { header: `Account Number (${currLabel} Account)`, key: "bankAccount", money: false, total: false },
+    { header: "Days Attended", key: "daysAttended", money: false, total: true },
+    { header: "Working Days", key: "workingDays", money: false, total: false },
+    { header: `Base Salary / Daily Rate (${currLabel})`, key: "baseOrDaily", money: true, total: false },
+    { header: `Net Salary (${currLabel})`, key: "netSalary", money: true, total: true },
+    { header: `Deduction (${currLabel})`, key: "deduction", money: true, total: true },
+    { header: `Bonus (${currLabel})`, key: "bonus", money: true, total: true },
+    { header: `Final Pay (${currLabel})`, key: "finalPay", money: true, total: true },
   ];
+  const finalPayColIdx = columns.findIndex(c => c.key === "finalPay") + 1;
+
+  const FONT_NAME = "Calibri";
+  const HEADER_BG = "FF0E3D82";
+  const TOTAL_FILL = "FFE7EEF9";
+
+  // Group rows by site — with a single-site filter this yields one group.
+  const bySite = {};
+  rows.forEach(r => {
+    const site = r.site && r.site !== "—" ? r.site : "Unassigned";
+    if (!bySite[site]) bySite[site] = [];
+    bySite[site].push(r);
+  });
+  const siteNames = Object.keys(bySite).sort((a, b) =>
+    a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b));
+  const multiSite = siteNames.length > 1;
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet("Payroll");
+  wb.creator = "JECCA Engineering HRMS";
+  wb.created = new Date();
 
-  ws.columns = columns.map(c => ({ header: c.header, key: c.key }));
-  ws.getRow(1).eachCell(cell => {
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0E3D82" } };
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" }, name: "Arial", size: 10.5 };
-    cell.alignment = { horizontal: "left" };
-  });
+  // Summary sheet first so it lands as the first tab (only when there's
+  // actually more than one site to summarize).
+  const summaryWs = multiSite ? wb.addWorksheet("Summary") : null;
 
-  rows.forEach(r => {
+  const usedNames = new Set(multiSite ? ["summary"] : []);
+  function sheetNameFor(site) {
+    const base = (site || "Site").replace(/[:\\/?*[\]]/g, "").trim().slice(0, 28) || "Site";
+    let name = base, i = 2;
+    while (usedNames.has(name.toLowerCase())) { name = `${base} ${i}`.slice(0, 31); i++; }
+    usedNames.add(name.toLowerCase());
+    return name;
+  }
+
+  function buildRow(ws, r) {
     const row = ws.addRow({
       fullName: r.fullName,
       jobTitle: r.jobTitle,
@@ -630,7 +656,7 @@ async function downloadExcel(rows, filename, currency, zigRate) {
       bonus: Number(r.bonus.toFixed(2)),
       finalPay: Number(r.finalPay.toFixed(2)),
     });
-    row.font = { name: "Arial", size: 10 };
+    row.font = { name: FONT_NAME, size: 10 };
     columns.forEach((c, i) => {
       const cell = row.getCell(i + 1);
       if (c.money) {
@@ -638,19 +664,105 @@ async function downloadExcel(rows, filename, currency, zigRate) {
         cell.alignment = { horizontal: "right" };
       }
     });
-  });
+    return row;
+  }
 
-  // ── Auto-width: size each column to fit its widest cell (header included) ──
-  ws.columns.forEach((col, i) => {
-    let maxLen = String(columns[i].header).length;
-    col.eachCell?.({ includeEmpty: false }, cell => {
-      const val = cell.value === null || cell.value === undefined ? "" : String(cell.value);
-      if (val.length > maxLen) maxLen = val.length;
+  const siteSummary = []; // { site, employeeCount, totalRef }
+
+  siteNames.forEach(site => {
+    const siteRows = bySite[site];
+    const sheetName = multiSite ? sheetNameFor(site) : "Payroll";
+    const ws = wb.addWorksheet(sheetName);
+
+    ws.columns = columns.map(c => ({ header: c.header, key: c.key }));
+    ws.getRow(1).eachCell(cell => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, name: FONT_NAME, size: 10.5 };
+      cell.alignment = { horizontal: "left" };
     });
-    col.width = Math.min(Math.max(maxLen + 2, 10), 45);
+
+    siteRows.forEach(r => buildRow(ws, r));
+
+    // ── Totals row — live SUM formulas, grows automatically as rows change ──
+    const firstDataRow = 2;
+    const lastDataRow = ws.rowCount;
+    const totalRowIdx = lastDataRow + 1;
+    const totalRow = ws.getRow(totalRowIdx);
+    totalRow.getCell(1).value = "TOTAL";
+    columns.forEach((c, i) => {
+      if (!c.total) return;
+      const colLetter = ws.getColumn(i + 1).letter;
+      const cell = totalRow.getCell(i + 1);
+      cell.value = { formula: `SUM(${colLetter}${firstDataRow}:${colLetter}${lastDataRow})` };
+      if (c.money) cell.numFmt = "#,##0.00";
+      cell.alignment = { horizontal: "right" };
+    });
+    for (let c = 1; c <= columns.length; c++) {
+      const cell = totalRow.getCell(c);
+      cell.font = { bold: true, name: FONT_NAME, size: 10 };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TOTAL_FILL } };
+    }
+
+    // ── Auto-width: size each column to fit its widest cell (header included) ──
+    ws.columns.forEach((col, i) => {
+      let maxLen = String(columns[i].header).length;
+      col.eachCell?.({ includeEmpty: false }, cell => {
+        const raw = cell.value && typeof cell.value === "object" ? (cell.value.result ?? "") : cell.value;
+        const val = raw === null || raw === undefined ? "" : String(raw);
+        if (val.length > maxLen) maxLen = val.length;
+      });
+      col.width = Math.min(Math.max(maxLen + 2, 10), 45);
+    });
+
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+
+    if (multiSite) {
+      const finalPayColLetter = ws.getColumn(finalPayColIdx).letter;
+      siteSummary.push({
+        site,
+        employeeCount: siteRows.length,
+        totalRef: `'${sheetName}'!${finalPayColLetter}${totalRowIdx}`,
+      });
+    }
   });
 
-  ws.views = [{ state: "frozen", ySplit: 1 }];
+  // ── Summary sheet content ──
+  if (multiSite && summaryWs) {
+    summaryWs.columns = [
+      { header: "Site", key: "site" },
+      { header: "Employees", key: "count" },
+      { header: `Total Final Pay (${currLabel})`, key: "total" },
+    ];
+    summaryWs.getRow(1).eachCell(cell => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, name: FONT_NAME, size: 10.5 };
+      cell.alignment = { horizontal: "left" };
+    });
+
+    siteSummary.forEach(s => {
+      const row = summaryWs.addRow({ site: s.site, count: s.employeeCount, total: { formula: s.totalRef } });
+      row.font = { name: FONT_NAME, size: 10 };
+      row.getCell(3).numFmt = "#,##0.00";
+      row.getCell(3).alignment = { horizontal: "right" };
+    });
+
+    const firstSummaryRow = 2;
+    const lastSummaryRow = summaryWs.rowCount;
+    const grandRow = summaryWs.addRow({
+      site: "TOTAL — ALL SITES",
+      count: { formula: `SUM(B${firstSummaryRow}:B${lastSummaryRow})` },
+      total: { formula: `SUM(C${firstSummaryRow}:C${lastSummaryRow})` },
+    });
+    grandRow.getCell(3).numFmt = "#,##0.00";
+    grandRow.getCell(3).alignment = { horizontal: "right" };
+    grandRow.eachCell(cell => {
+      cell.font = { bold: true, name: FONT_NAME, size: 10.5 };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TOTAL_FILL } };
+    });
+
+    summaryWs.columns.forEach(col => { col.width = 26; });
+    summaryWs.views = [{ state: "frozen", ySplit: 1 }];
+  }
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });

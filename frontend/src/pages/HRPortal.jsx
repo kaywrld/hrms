@@ -934,9 +934,10 @@ function _EditInput({ value, onChange, type = "text", placeholder = "" }) {
     />
   );
 }
-function _EditSelect({ value, onChange, options, placeholder }) {
+function _EditSelect({ value, onChange, options, placeholder, disabled }) {
   return (
-    <select style={{ ..._editInputStyle, cursor: "pointer" }} value={value} onChange={e => onChange(e.target.value)}>
+    <select style={{ ..._editInputStyle, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1 }}
+      value={value} onChange={e => onChange(e.target.value)} disabled={disabled}>
       {placeholder && <option value="">{placeholder}</option>}
       {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
@@ -985,6 +986,9 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
     monthly_salary: employee?.payroll?.basic_salary || employee?.basic_salary || "",
     daily_rate:     employee?.payroll?.daily_rate   || employee?.daily_rate   || "",
     // Personal
+    first_name:    employee?.first_name    || "",
+    middle_name:   employee?.middle_name   || "",
+    last_name:     employee?.last_name     || "",
     phone_number:  employee?.phone_number  || "",
     email:         employee?.email         || "",
     address:       employee?.address       || "",
@@ -998,6 +1002,10 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
     status:       employee?.status         || "employed",
     department:   String(employee?.department || ""),
     site:         String(employee?.site || ""),
+    employment_type: employee?.employment_type || "",
+    contract_start:  employee?.contract_start  || "",
+    contract_end:    employee?.contract_end    || "",
+    date_joined:     employee?.date_joined     || "",
   });
 
   const set = k => v => setForm(f => ({ ...f, [k]: v }));
@@ -1016,6 +1024,15 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
   ];
 
   const save = async () => {
+    if (!form.first_name.trim() || !form.last_name.trim()) {
+      showToast("First name and last name are required.", "err");
+      setTab("personal");
+      return;
+    }
+    if (form.employment_type === "contract") {
+      if (!form.contract_start) { showToast("Contract start date is required.", "err"); setTab("employment"); return; }
+      if (!form.contract_end)   { showToast("Contract end date is required.", "err");   setTab("employment"); return; }
+    }
     if (isDaily && (!form.daily_rate || parseFloat(form.daily_rate) <= 0)) {
       showToast("Please enter a daily rate greater than 0.", "err"); return;
     }
@@ -1026,6 +1043,9 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
     try {
       // 1. Save employee fields (PATCH)
       const empBody = new FormData();
+      empBody.append("first_name",  form.first_name.trim());
+      empBody.append("last_name",   form.last_name.trim());
+      empBody.append("middle_name", form.middle_name.trim());
       if (form.phone_number) empBody.append("phone_number", form.phone_number);
       if (form.email)        empBody.append("email", form.email);
       if (form.address)      empBody.append("address", form.address);
@@ -1033,6 +1053,20 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
       if (form.status)       empBody.append("status", form.status);
       if (form.department)   empBody.append("department", form.department);
       if (form.site)         empBody.append("site", form.site);
+      if (form.employment_type) empBody.append("employment_type", form.employment_type);
+      if (form.employment_type === "contract") {
+        empBody.append("contract_start", form.contract_start || "");
+        empBody.append("contract_end",   form.contract_end   || "");
+      }
+      // date_joined is required by the backend — fall back the same way the
+      // Add Employee form does if it's not set (contract start, else today).
+      if (form.date_joined) {
+        empBody.append("date_joined", form.date_joined);
+      } else {
+        const today = new Date();
+        const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+        empBody.append("date_joined", form.contract_start || localToday);
+      }
       // Next of Kin fields
       empBody.append("nok_full_name",    form.nok_full_name    || "");
       empBody.append("nok_relationship", form.nok_relationship || "");
@@ -1115,7 +1149,7 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
               Edit Employee
             </span>
             <div style={{ fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:2,fontFamily:"'DM Sans',sans-serif" }}>
-              {[employee.first_name, employee.last_name].filter(Boolean).join(" ")}
+              {[form.first_name, form.last_name].filter(Boolean).join(" ") || [employee.first_name, employee.last_name].filter(Boolean).join(" ")}
               {employee.employee_number ? ` · #${employee.employee_number}` : ""}
             </div>
           </div>
@@ -1152,7 +1186,7 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
                     style={{ flex:1,padding:"8px 12px",borderRadius:8,border:"1.5px solid "+(!isDaily?"#1557b0":"#e2e8f0"),background:!isDaily?"#eff6ff":"#fff",color:!isDaily?"#1557b0":"#64748b",fontSize:12.5,fontWeight:600,fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
                     Monthly Salary
                   </button>
-                  <button type="button" onClick={() => setPayType("daily")}
+                  <button type="button" onClick={() => { setPayType("daily"); set("employment_type")("contract"); }}
                     style={{ flex:1,padding:"8px 12px",borderRadius:8,border:"1.5px solid "+(isDaily?"#7c3aed":"#e2e8f0"),background:isDaily?"#f5f3ff":"#fff",color:isDaily?"#7c3aed":"#64748b",fontSize:12.5,fontWeight:600,fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
                     Daily Rate
                   </button>
@@ -1218,6 +1252,20 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
 
           {tab === "personal" && (
             <>
+              <div className="hr-modal-2col" style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px" }}>
+                <Field label="First Name *">
+                  <Input value={form.first_name} onChange={set("first_name")} placeholder="e.g. John" />
+                </Field>
+                <Field label="Last Name *">
+                  <Input value={form.last_name} onChange={set("last_name")} placeholder="e.g. Doe" />
+                </Field>
+              </div>
+              <Field label="Middle Name">
+                <Input value={form.middle_name} onChange={set("middle_name")} placeholder="Optional" />
+              </Field>
+
+              <div style={{ height:1,background:"#e2e8f0",margin:"4px 0 16px" }} />
+
               <Field label="Phone Number">
                 <Input value={form.phone_number} onChange={set("phone_number")} placeholder="+263 77 123 4567" />
               </Field>
@@ -1295,6 +1343,37 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
                   { value:"suspended", label:"Suspended" },
                 ]} />
               </Field>
+
+              <div style={{ height:1,background:"#e2e8f0",margin:"4px 0 16px" }} />
+
+              <Field label="Employment Type">
+                <Select value={form.employment_type} onChange={set("employment_type")} placeholder="Select type"
+                  disabled={isDaily}
+                  options={[
+                    { value:"full_time", label:"Full-Time" },
+                    { value:"part_time", label:"Part-Time" },
+                    { value:"contract",  label:"Contract"  },
+                  ]} />
+                {isDaily && (
+                  <div style={{ fontSize:11,color:"#94a3b8",marginTop:4,fontFamily:"'DM Sans',sans-serif" }}>
+                    Locked to Contract because Pay Type is set to Daily Rate.
+                  </div>
+                )}
+              </Field>
+              {form.employment_type === "contract" ? (
+                <div className="hr-modal-2col" style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px" }}>
+                  <Field label="Contract Start">
+                    <Input type="date" value={form.contract_start} onChange={set("contract_start")} />
+                  </Field>
+                  <Field label="Contract End">
+                    <Input type="date" value={form.contract_end} onChange={set("contract_end")} />
+                  </Field>
+                </div>
+              ) : (
+                <Field label="Date Started">
+                  <Input type="date" value={form.date_joined} onChange={set("date_joined")} />
+                </Field>
+              )}
             </>
           )}
         </div>

@@ -629,52 +629,95 @@ async function buildAndDownloadMonthlyRegister({ employees, records, year, month
   const siteNames = Object.keys(bySite).sort((a, b) =>
     a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b));
 
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(`${MONTH_NAMES[month]} ${year}`.slice(0, 31));
+  // ── Styling constants ──
+  const FONT_NAME = "Calibri";
+  const NAVY = "FF1F3864";
+  const HEADER_FILL = "FFD9E1F2";
+  const WEEKEND_FILL = "FFFFC7CE";
+  const WEEKEND_FONT = "FF9C0006";
+  const TOTAL_FILL = "FFFFE699";
+  const GRID = "FFB7B7B7";
+  const thinBorder = {
+    top: { style: "thin", color: { argb: GRID } },
+    left: { style: "thin", color: { argb: GRID } },
+    bottom: { style: "thin", color: { argb: GRID } },
+    right: { style: "thin", color: { argb: GRID } },
+  };
 
   const totalCols = 3 + daysInMonth + 1; // No. + Name + Position + days + Total days
-
-  // ── Title row ──
-  ws.mergeCells(1, 1, 1, totalCols);
-  const titleCell = ws.getCell(1, 1);
-  titleCell.value = `${MONTH_NAMES[month]} ${year} DAILY REGISTER [ALL SITES]`;
-  titleCell.font = { bold: true, size: 14, name: "Arial" };
-  titleCell.alignment = { horizontal: "center" };
-
-  // ── Header row ──
-  const headerRow = ws.getRow(2);
-  headerRow.getCell(1).value = "No.";
-  headerRow.getCell(2).value = "Employees Names";
-  headerRow.getCell(3).value = "Position";
-  for (let d = 1; d <= daysInMonth; d++) headerRow.getCell(3 + d).value = d;
-  headerRow.getCell(3 + daysInMonth + 1).value = "Total days";
-  headerRow.eachCell(cell => { cell.font = { bold: true, name: "Arial", size: 10 }; cell.alignment = { horizontal: "center" }; });
+  const weekendDays = [];
   for (let d = 1; d <= daysInMonth; d++) {
     const dow = new Date(year, month, d).getDay();
-    if (dow === 0 || dow === 6) headerRow.getCell(3 + d).font = { bold: true, name: "Arial", size: 10, color: { argb: "FFFF0000" } };
+    if (dow === 0 || dow === 6) weekendDays.push(d);
   }
 
-  // ── Column widths ──
-  ws.getColumn(1).width = 5;
-  ws.getColumn(2).width = 28;
-  ws.getColumn(3).width = 24;
-  for (let d = 1; d <= daysInMonth; d++) ws.getColumn(3 + d).width = 4;
-  ws.getColumn(3 + daysInMonth + 1).width = 12;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "JECCA Engineering HRMS";
+  wb.created = new Date();
 
-  // ── Site groups + employee rows ──
-  let rowIdx = 3;
+  // Summary sheet is created first so it appears as the first tab; it's
+  // populated with formulas that reference each site sheet once they exist.
+  const summaryWs = wb.addWorksheet("Summary");
+
+  const usedNames = new Set(["summary"]);
+  function sheetNameFor(site) {
+    const base = (site || "Site").replace(/[:\\/?*[\]]/g, "").trim().slice(0, 28) || "Site";
+    let name = base, i = 2;
+    while (usedNames.has(name.toLowerCase())) { name = `${base} ${i}`.slice(0, 31); i++; }
+    usedNames.add(name.toLowerCase());
+    return name;
+  }
+
+  const siteSummary = []; // { site, sheetName, employeeCount, grandTotalRef }
+
+  // ── One worksheet per site ──
   siteNames.forEach(site => {
-    const siteRow = ws.getRow(rowIdx);
-    siteRow.getCell(2).value = site;
-    siteRow.getCell(2).font = { bold: true, name: "Arial", size: 10.5 };
-    for (let c = 1; c <= totalCols; c++) {
-      siteRow.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF00" } };
-    }
-    rowIdx++;
+    const empList = bySite[site];
+    const sheetName = sheetNameFor(site);
+    const ws = wb.addWorksheet(sheetName);
 
-    bySite[site].forEach((emp, i) => {
+    // Title row
+    ws.mergeCells(1, 1, 1, totalCols);
+    const titleCell = ws.getCell(1, 1);
+    titleCell.value = `${site.toUpperCase()} — ${MONTH_NAMES[month]} ${year} DAILY REGISTER`;
+    titleCell.font = { bold: true, size: 14, name: FONT_NAME, color: { argb: NAVY } };
+    titleCell.alignment = { horizontal: "center", vertical: "center" };
+    ws.getRow(1).height = 26;
+
+    // Header row
+    const headerRowIdx = 2;
+    const headerRow = ws.getRow(headerRowIdx);
+    headerRow.getCell(1).value = "No.";
+    headerRow.getCell(2).value = "Employee Name";
+    headerRow.getCell(3).value = "Position";
+    for (let d = 1; d <= daysInMonth; d++) headerRow.getCell(3 + d).value = d;
+    headerRow.getCell(3 + daysInMonth + 1).value = "Total Days";
+    for (let c = 1; c <= totalCols; c++) {
+      const cell = headerRow.getCell(c);
+      cell.font = { bold: true, name: FONT_NAME, size: 11, color: { argb: NAVY } };
+      cell.alignment = { horizontal: "center", vertical: "center", wrapText: true };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_FILL } };
+      cell.border = thinBorder;
+    }
+    weekendDays.forEach(d => {
+      const cell = headerRow.getCell(3 + d);
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: WEEKEND_FILL } };
+      cell.font = { bold: true, name: FONT_NAME, size: 11, color: { argb: WEEKEND_FONT } };
+    });
+    headerRow.height = 20;
+
+    // Column widths
+    ws.getColumn(1).width = 5.5;
+    ws.getColumn(2).width = 26;
+    ws.getColumn(3).width = 22;
+    for (let d = 1; d <= daysInMonth; d++) ws.getColumn(3 + d).width = 3.6;
+    ws.getColumn(3 + daysInMonth + 1).width = 11;
+
+    // Data rows
+    let rowIdx = 3;
+    const firstDataRow = rowIdx;
+    empList.forEach((emp, i) => {
       const row = ws.getRow(rowIdx);
-      row.font = { name: "Arial", size: 10 };
       const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
       row.getCell(1).value = i + 1;
       row.getCell(2).value = fullName;
@@ -682,18 +725,112 @@ async function buildAndDownloadMonthlyRegister({ employees, records, year, month
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
         const status = recMap[emp.id]?.[dateStr];
-        row.getCell(3 + d).value = PRESENT_STATUSES.has(status) ? 1 : 0;
-        row.getCell(3 + d).alignment = { horizontal: "center" };
+        const cell = row.getCell(3 + d);
+        cell.value = PRESENT_STATUSES.has(status) ? 1 : 0;
+        cell.alignment = { horizontal: "center", vertical: "center" };
+        if (weekendDays.includes(d)) {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: WEEKEND_FILL } };
+        }
       }
-      const totalCell = row.getCell(3 + daysInMonth + 1);
       const startCol = ws.getColumn(4).letter, endCol = ws.getColumn(3 + daysInMonth).letter;
+      const totalCell = row.getCell(3 + daysInMonth + 1);
       totalCell.value = { formula: `SUM(${startCol}${rowIdx}:${endCol}${rowIdx})` };
-      totalCell.font = { bold: true, name: "Arial", size: 10 };
+      totalCell.font = { bold: true, name: FONT_NAME, size: 11 };
+      totalCell.alignment = { horizontal: "center", vertical: "center" };
+
+      for (let c = 1; c <= totalCols; c++) {
+        const cell = row.getCell(c);
+        if (!cell.font) cell.font = { name: FONT_NAME, size: 11 };
+        cell.border = thinBorder;
+      }
+      row.height = 16;
       rowIdx++;
+    });
+    const lastDataRow = rowIdx - 1;
+
+    // TOTAL row — daily headcount per day + grand total, both live formulas
+    // that recalculate automatically the moment any mark changes.
+    const totalRowIdx = rowIdx;
+    const totalRow = ws.getRow(totalRowIdx);
+    totalRow.getCell(2).value = "TOTAL MARKED PRESENT";
+    for (let d = 1; d <= daysInMonth; d++) {
+      const colLetter = ws.getColumn(3 + d).letter;
+      totalRow.getCell(3 + d).value = { formula: `SUM(${colLetter}${firstDataRow}:${colLetter}${lastDataRow})` };
+      totalRow.getCell(3 + d).alignment = { horizontal: "center", vertical: "center" };
+    }
+    const grandTotalCol = ws.getColumn(3 + daysInMonth + 1).letter;
+    totalRow.getCell(3 + daysInMonth + 1).value = { formula: `SUM(${grandTotalCol}${firstDataRow}:${grandTotalCol}${lastDataRow})` };
+    for (let c = 1; c <= totalCols; c++) {
+      const cell = totalRow.getCell(c);
+      cell.font = { bold: true, name: FONT_NAME, size: 11 };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TOTAL_FILL } };
+      cell.border = thinBorder;
+    }
+    totalRow.height = 18;
+
+    ws.views = [{ state: "frozen", ySplit: headerRowIdx, xSplit: 3 }];
+    ws.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+
+    siteSummary.push({
+      site,
+      sheetName,
+      employeeCount: empList.length,
+      grandTotalRef: `'${sheetName}'!${grandTotalCol}${totalRowIdx}`,
     });
   });
 
-  ws.views = [{ state: "frozen", ySplit: 2 }];
+  // ── Summary sheet ──
+  summaryWs.mergeCells(1, 1, 1, 4);
+  const sumTitle = summaryWs.getCell(1, 1);
+  sumTitle.value = `${MONTH_NAMES[month]} ${year} DAILY REGISTER — SITE SUMMARY`;
+  sumTitle.font = { bold: true, size: 14, name: FONT_NAME, color: { argb: NAVY } };
+  sumTitle.alignment = { horizontal: "center", vertical: "center" };
+  summaryWs.getRow(1).height = 26;
+
+  const sumHeaderRow = summaryWs.getRow(2);
+  ["Site", "Employees", "Total Attendance Days", ""].forEach((label, idx) => {
+    sumHeaderRow.getCell(idx + 1).value = label;
+  });
+  for (let c = 1; c <= 3; c++) {
+    const cell = sumHeaderRow.getCell(c);
+    cell.font = { bold: true, name: FONT_NAME, size: 11, color: { argb: NAVY } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_FILL } };
+    cell.alignment = { horizontal: "center", vertical: "center" };
+    cell.border = thinBorder;
+  }
+  summaryWs.getColumn(1).width = 28;
+  summaryWs.getColumn(2).width = 14;
+  summaryWs.getColumn(3).width = 22;
+
+  let sRow = 3;
+  const firstSummaryRow = sRow;
+  siteSummary.forEach(({ site, employeeCount, grandTotalRef }) => {
+    const row = summaryWs.getRow(sRow);
+    row.getCell(1).value = site;
+    row.getCell(2).value = employeeCount;
+    row.getCell(3).value = { formula: grandTotalRef };
+    for (let c = 1; c <= 3; c++) {
+      const cell = row.getCell(c);
+      cell.font = { name: FONT_NAME, size: 11 };
+      cell.alignment = { horizontal: c === 1 ? "left" : "center", vertical: "center" };
+      cell.border = thinBorder;
+    }
+    sRow++;
+  });
+  const lastSummaryRow = sRow - 1;
+
+  const grandRow = summaryWs.getRow(sRow);
+  grandRow.getCell(1).value = "TOTAL — ALL SITES";
+  grandRow.getCell(2).value = { formula: `SUM(B${firstSummaryRow}:B${lastSummaryRow})` };
+  grandRow.getCell(3).value = { formula: `SUM(C${firstSummaryRow}:C${lastSummaryRow})` };
+  for (let c = 1; c <= 3; c++) {
+    const cell = grandRow.getCell(c);
+    cell.font = { bold: true, name: FONT_NAME, size: 11 };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TOTAL_FILL } };
+    cell.alignment = { horizontal: c === 1 ? "left" : "center", vertical: "center" };
+    cell.border = thinBorder;
+  }
+  summaryWs.views = [{ state: "frozen", ySplit: 2 }];
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -703,19 +840,6 @@ async function buildAndDownloadMonthlyRegister({ employees, records, year, month
   a.click();
   URL.revokeObjectURL(a.href);
   showToast?.("Register downloaded.");
-}
-
-// ── Location helpers (mirrors DeptPortal's site picker) ────────────────────
-// resolveLocation: title-cases the input (the shared registry is the single
-// source of truth for known names, no client-side alias mapping needed).
-function resolveLocation(raw) {
-  if (!raw || !raw.trim()) return "";
-  return raw.trim().replace(/\b\w/g, c => c.toUpperCase());
-}
-function suggestLocations(raw, registry) {
-  if (!raw || raw.length < 1 || !registry) return [];
-  const lower = raw.toLowerCase();
-  return registry.filter(name => name.toLowerCase().includes(lower));
 }
 
 // ── Zimbabwe Public Holidays (same logic used on the Payroll page, so the
@@ -762,7 +886,7 @@ function getZwPublicHolidays(year, month) {
 // Days already on record (any status) show as a read-only badge; only
 // unmarked days are selectable, since there's no delete/undo endpoint to
 // safely overwrite a status a HOD may have set for a reason.
-function RegisterMarkingView({ employees, departments, onBack, showToast }) {
+function RegisterMarkingView({ employees, departments, sites, onBack, showToast }) {
   const todayObj = new Date();
   const todayStr = toYMD(todayObj);
   const [year,  setYear]  = useState(todayObj.getFullYear());
@@ -777,67 +901,10 @@ function RegisterMarkingView({ employees, departments, onBack, showToast }) {
   const [saving, setSaving]     = useState(false);
   const [saveProgress, setSaveProgress] = useState(null); // { done, total }
 
-  // ── Per-employee "site" for the month — shared registry + free typing ──
-  const [locationRegistry, setLocationRegistry] = useState([]);
+  // ── Per-employee "site" for the month — defaults to the employee's
+  // assigned Site, but can be overridden per register (e.g. temporarily
+  // working elsewhere) without changing their permanent assignment.
   const [siteDraft, setSiteDraft] = useState({});        // { empId: "Masons" }
-  const [siteSuggestions, setSiteSuggestions] = useState({});
-  const [siteDropOpen, setSiteDropOpen] = useState({});
-
-  useEffect(() => {
-    apiFetch(`${API}/attendance/locations/`)
-      .then(r => r.ok ? r.json() : [])
-      .then(data => {
-        const list = (Array.isArray(data) ? data : data.results || []).map(l => l.name);
-        setLocationRegistry(list);
-      })
-      .catch(() => {});
-  }, []);
-
-  const registerLocation = async (name) => {
-    if (!name?.trim()) return;
-    const trimmed = name.trim();
-    if (locationRegistry.some(l => l.toLowerCase() === trimmed.toLowerCase())) return;
-    setLocationRegistry(prev => [...prev, trimmed].sort((a, b) => a.localeCompare(b)));
-    try {
-      const res = await apiFetch(`${API}/attendance/locations/`, { method: "POST", body: JSON.stringify({ name: trimmed }) });
-      if (res.ok) {
-        const saved = await res.json();
-        setLocationRegistry(prev => {
-          const without = prev.filter(l => l.toLowerCase() !== saved.name.toLowerCase());
-          return [...without, saved.name].sort((a, b) => a.localeCompare(b));
-        });
-      }
-    } catch (_) { /* optimistic update stays */ }
-  };
-
-  const handleSiteInput = (empId, val) => {
-    setSiteDraft(d => ({ ...d, [empId]: val }));
-    const sug = suggestLocations(val, locationRegistry).slice(0, 12);
-    setSiteSuggestions(s => ({ ...s, [empId]: sug }));
-    setSiteDropOpen(o => ({ ...o, [empId]: sug.length > 0 && val.length > 0 }));
-  };
-  // Called on focus — shows the full known-sites list right away (filtered
-  // to whatever's already typed) so a previously-used site doesn't need to
-  // be retyped from scratch each time; only narrows as HR keeps typing.
-  const openSiteSuggestions = (empId) => {
-    const v = siteDraft[empId] || "";
-    const sug = (v ? suggestLocations(v, locationRegistry) : locationRegistry).slice(0, 12);
-    setSiteSuggestions(s => ({ ...s, [empId]: sug }));
-    setSiteDropOpen(o => ({ ...o, [empId]: sug.length > 0 }));
-  };
-  const handleSiteBlur = (empId) => {
-    setTimeout(() => {
-      setSiteDropOpen(o => ({ ...o, [empId]: false }));
-      setSiteDraft(d => {
-        const cur = d[empId] || "";
-        return cur.trim() ? { ...d, [empId]: resolveLocation(cur) } : d;
-      });
-    }, 160);
-  };
-  const pickSite = (empId, loc) => {
-    setSiteDraft(d => ({ ...d, [empId]: loc }));
-    setSiteDropOpen(o => ({ ...o, [empId]: false }));
-  };
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
@@ -882,11 +949,12 @@ function RegisterMarkingView({ employees, departments, onBack, showToast }) {
           });
           // 2. Otherwise, fall back to the employee's assigned Site (from the
           //    Employees page) as the starting point — still just a default
-          //    for this register; typing over it doesn't change their
+          //    for this register; changing it here doesn't change their
           //    permanent assignment.
           (employees || []).forEach(emp => {
             if (next[emp.id] !== undefined) return;
-            if (emp.site_name) next[emp.id] = emp.site_name;
+            const defaultSite = emp.site_name || (sites || []).find(s => s.id === emp.site)?.name;
+            if (defaultSite) next[emp.id] = defaultSite;
           });
           return next;
         });
@@ -894,7 +962,7 @@ function RegisterMarkingView({ employees, departments, onBack, showToast }) {
       .catch(() => showToast?.("Failed to load existing attendance.", "err"))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [monthStart, monthEnd, employees]);
+  }, [monthStart, monthEnd, employees, sites]);
 
   const activeEmployees = useMemo(() => (employees || []).filter(e => e.status === "employed"), [employees]);
 
@@ -903,7 +971,7 @@ function RegisterMarkingView({ employees, departments, onBack, showToast }) {
     const q = search.toLowerCase();
     const matchSearch = !q || fullName.toLowerCase().includes(q) || (emp.job_title || "").toLowerCase().includes(q) || (emp.department_name || "").toLowerCase().includes(q);
     const matchDept = deptFilter === "all" || String(emp.department) === deptFilter;
-    const empSite = resolveLocation(siteDraft[emp.id] || "");
+    const empSite = siteDraft[emp.id] || "";
     const matchSite = siteFilter === "all" || (siteFilter === "unassigned" ? !empSite : empSite === siteFilter);
     return matchSearch && matchDept && matchSite;
   }), [activeEmployees, search, deptFilter, siteFilter, siteDraft]);
@@ -1000,19 +1068,12 @@ function RegisterMarkingView({ employees, departments, onBack, showToast }) {
     });
     setSaveProgress({ done: 0, total: items.length });
 
-    // Persist any newly-typed sites to the shared registry first
-    const empIds = Array.from(new Set(items.map(i => i.empId)));
-    await Promise.all(empIds.map(empId => {
-      const loc = resolveLocation(siteDraft[empId] || "");
-      return loc ? registerLocation(loc) : Promise.resolve();
-    }));
-
     let succeeded = 0, failed = 0;
     const batchSize = 6;
     for (let i = 0; i < items.length; i += batchSize) {
       const batch = items.slice(i, i + batchSize);
       const results = await Promise.all(batch.map(({ empId, date }) => {
-        const work_location = resolveLocation(siteDraft[empId] || "");
+        const work_location = siteDraft[empId] || "";
         return apiFetch(`${API}/attendance/`, {
           method: "POST",
           body: JSON.stringify({ employee: Number(empId), date, status: "present", shift: null, notes: "", work_location }),
@@ -1095,10 +1156,10 @@ function RegisterMarkingView({ employees, departments, onBack, showToast }) {
           {(departments || []).map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
         </select>
         <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}
-          title="Filter to employees currently assigned to a site — sites come from the shared registry built up as registers are marked"
+          title="Filter to employees whose site for this register matches"
           style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer" }}>
           <option value="all">All Sites</option>
-          {locationRegistry.map(site => <option key={site} value={site}>{site}</option>)}
+          {(sites || []).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
           <option value="unassigned">Unassigned</option>
         </select>
         <button onClick={markEverythingVisible} disabled={loading} title="Marks working days (Mon–Fri, excl. ZW public holidays) for everyone visible below — click again to unmark"
@@ -1183,32 +1244,32 @@ function RegisterMarkingView({ employees, departments, onBack, showToast }) {
                       {emp.department_name && <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: 6 }}>· {emp.department_name}</span>}
                     </td>
 
-                    {/* Site — where this employee worked this month, autocompleted from the shared registry */}
+                    {/* Site — defaults to this employee's assigned Site, but can be
+                        changed here for this register only (e.g. working
+                        temporarily elsewhere); their permanent assignment is untouched. */}
                     <td style={{ padding: "6px 10px", verticalAlign: "middle" }} onClick={e => e.stopPropagation()}>
-                      <div style={{ position: "relative" }}>
-                        <input
-                          value={siteDraft[emp.id] || ""}
-                          onChange={ev => handleSiteInput(emp.id, ev.target.value)}
-                          onFocus={() => openSiteSuggestions(emp.id)}
-                          onBlur={() => handleSiteBlur(emp.id)}
-                          placeholder="e.g. Masons…"
-                          style={{ width: "100%", boxSizing: "border-box", padding: "6px 9px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 12, fontFamily: "'DM Sans',sans-serif", color: "#334155", outline: "none", background: "#fafbff" }}
-                          onFocusCapture={e => { e.target.style.borderColor = "#1557b0"; }}
-                        />
-                        {siteDropOpen[emp.id] && (siteSuggestions[emp.id] || []).length > 0 && (
-                          <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 50, background: "#fff", border: "1.5px solid #1557b0", borderRadius: 9, boxShadow: "0 8px 24px rgba(21,87,176,0.15)", overflow: "hidden" }}>
-                            {(siteSuggestions[emp.id] || []).map(s => (
-                              <button key={s} onMouseDown={() => pickSite(emp.id, s)}
-                                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "8px 10px", fontSize: 12, color: "#334155", border: "none", background: "none", cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}
-                                onMouseEnter={e => e.currentTarget.style.background = "#eff6ff"}
-                                onMouseLeave={e => e.currentTarget.style.background = "none"}>
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1557b0" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                                {s}
-                              </button>
-                            ))}
+                      {(() => {
+                        const defaultSite = emp.site_name || (sites || []).find(s => s.id === emp.site)?.name || "";
+                        const current = siteDraft[emp.id] || "";
+                        const isTemporary = defaultSite && current && current !== defaultSite;
+                        return (
+                          <div>
+                            <select
+                              value={current}
+                              onChange={ev => setSiteDraft(d => ({ ...d, [emp.id]: ev.target.value }))}
+                              title={defaultSite ? `Default site: ${defaultSite}` : "No default site assigned to this employee"}
+                              style={{ width: "100%", boxSizing: "border-box", padding: "6px 9px", border: "1.5px solid " + (isTemporary ? "#d97706" : "#e2e8f0"), borderRadius: 7, fontSize: 12, fontFamily: "'DM Sans',sans-serif", color: "#334155", outline: "none", background: isTemporary ? "#fffbeb" : "#fafbff", cursor: "pointer" }}>
+                              <option value="">— Select site —</option>
+                              {(sites || []).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                            </select>
+                            {isTemporary && (
+                              <div style={{ fontSize: 10, color: "#b45309", marginTop: 3 }}>
+                                Temporary — default: {defaultSite}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
+                        );
+                      })()}
                     </td>
 
                     {dayList.map(d => {
@@ -1250,7 +1311,7 @@ function RegisterMarkingView({ employees, departments, onBack, showToast }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AttendancePage({ showToast }) {
-  const { employees: ctxEmployees, departments } = useHRPortal();
+  const { employees: ctxEmployees, departments, sites } = useHRPortal();
 
   const todayStr = toYMD(new Date());
   const [selectedDate, setSelectedDate] = useState(todayStr);
@@ -1261,19 +1322,6 @@ export default function AttendancePage({ showToast }) {
 
   const [attendance, setAttendance] = useState([]);
   const [attLoading, setAttLoading] = useState(true);
-
-  // Shared site registry — same source the "Mark Register" view writes to,
-  // so this filter's options always line up with what HR can type there.
-  const [locationRegistry, setLocationRegistry] = useState([]);
-  useEffect(() => {
-    apiFetch(`${API}/attendance/locations/`)
-      .then(r => r.ok ? r.json() : [])
-      .then(data => {
-        const list = (Array.isArray(data) ? data : data.results || []).map(l => l.name);
-        setLocationRegistry(list);
-      })
-      .catch(() => {});
-  }, []);
 
   // Clicking a row replaces the table with the detail view
   const [selectedEmp, setSelectedEmp] = useState(null);
@@ -1461,6 +1509,7 @@ export default function AttendancePage({ showToast }) {
           <RegisterMarkingView
             employees={ctxEmployees}
             departments={departments}
+            sites={sites}
             onBack={() => setMarkingMode(false)}
             showToast={showToast}
           />
@@ -1673,7 +1722,7 @@ export default function AttendancePage({ showToast }) {
               title="Filter by the site employees were marked at on this date"
               style={{ padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontFamily: "'DM Sans',sans-serif", color: "#334155", background: "#fafbff", outline: "none", cursor: "pointer", flex: "0 1 160px" }}>
               <option value="all">All Sites</option>
-              {locationRegistry.map(site => <option key={site} value={site}>{site}</option>)}
+              {(sites || []).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
               <option value="unassigned">Unassigned</option>
             </select>
             <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" }}>
