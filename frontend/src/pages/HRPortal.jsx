@@ -17,6 +17,15 @@ import HRSitesDepartmentsPage from "../components/HRPortal/SitesDepartmentsPage"
 import EmployeeDetailView, { ContractProgressBar } from "../components/HRPortal/EmployeeDetailView";
 import { ZW_BANKS } from "../utils/banks";
 
+
+// National ID validation (Zimbabwe format: DD-NNNNNNLNN, e.g. 63-207522S72)
+const ZW_ID_REGEX = /^\d{2}-\d{6,7}[A-Z]\d{2}$/;
+function formatZwId(raw) {
+  const clean = raw.replace(/[^0-9A-Z-]/g, "").slice(0, 13);
+  if (/^\d{2}$/.test(clean)) return clean + "-";
+  return clean;
+}
+
 // ── Palette & design tokens ───────────────────────────────────────────────────
 const COLORS = {
   deptPalette: [
@@ -992,6 +1001,8 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
     phone_number:  employee?.phone_number  || "",
     email:         employee?.email         || "",
     address:       employee?.address       || "",
+    national_id:   employee?.national_id   || "",
+    
     // Next of Kin
     nok_full_name:    employee?.nok_full_name    || "",
     nok_relationship: employee?.nok_relationship || "",
@@ -1049,6 +1060,7 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
       if (form.phone_number) empBody.append("phone_number", form.phone_number);
       if (form.email)        empBody.append("email", form.email);
       if (form.address)      empBody.append("address", form.address);
+      if (form.national_id)  empBody.append("national_id", form.national_id);
       if (form.job_title)    empBody.append("job_title", form.job_title);
       if (form.status)       empBody.append("status", form.status);
       if (form.department)   empBody.append("department", form.department);
@@ -1262,6 +1274,25 @@ function EditEmployeeModal({ employee, departments, sites, onClose, showToast, o
               </div>
               <Field label="Middle Name">
                 <Input value={form.middle_name} onChange={set("middle_name")} placeholder="Optional" />
+              </Field>
+
+              <Field label="National ID">
+                <input
+                  style={{
+                    ..._editInputStyle,
+                    textTransform: "uppercase",
+                    borderColor: form.national_id && !ZW_ID_REGEX.test(form.national_id) ? "#ef4444" : "#e2e8f0",
+                  }}
+                  value={form.national_id}
+                  onChange={e => set("national_id")(formatZwId(e.target.value.toUpperCase()))}
+                  placeholder="e.g. 63-207522S72"
+                  maxLength={13}
+                />
+                {form.national_id && !ZW_ID_REGEX.test(form.national_id) && (
+                  <div style={{ fontSize: 11.5, color: "#ef4444", marginTop: 4 }}>
+                    Format: DD-NNNNNN(N)LNN — e.g. 63-207522S72
+                  </div>
+                )}
               </Field>
 
               <div style={{ height:1,background:"#e2e8f0",margin:"4px 0 16px" }} />

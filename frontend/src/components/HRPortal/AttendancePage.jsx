@@ -906,6 +906,10 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   // working elsewhere) without changing their permanent assignment.
   const [siteDraft, setSiteDraft] = useState({});        // { empId: "Masons" }
 
+  // Future days are locked by default; HR can unlock them to mark days
+  // in advance for the rest of the month (e.g. pre-marking a week off).
+  const [futureUnlocked, setFutureUnlocked] = useState(false);
+
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
   const monthEnd   = `${year}-${String(month + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
@@ -979,7 +983,7 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   const dayList = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth]);
 
   const dateStr = (d) => `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  const isFutureDay = (d) => dateStr(d) > todayStr;
+  const isFutureDay = (d) => !futureUnlocked && dateStr(d) > todayStr;
   const holidays = useMemo(() => getZwPublicHolidays(year, month), [year, month]);
   const isHoliday = (d) => holidays.has(dateStr(d));
   const isWorkDay = (d) => {
@@ -1166,6 +1170,17 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
           className="reg-btn"
           style={{ padding: "9px 14px", borderRadius: 9, border: "1.5px solid #1557b0", background: "#fff", color: "#1557b0", fontSize: 12.5, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: loading ? "not-allowed" : "pointer" }}>
           Mark All Working Days
+        </button>
+        <button onClick={() => setFutureUnlocked(v => !v)}
+          title={futureUnlocked ? "Re-lock days ahead of today" : "Unlock days ahead of today so you can mark them in advance"}
+          className="reg-btn"
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 9, border: "1.5px solid " + (futureUnlocked ? "#d97706" : "#e2e8f0"), background: futureUnlocked ? "#fffbeb" : "#fff", color: futureUnlocked ? "#b45309" : "#64748b", fontSize: 12.5, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            {futureUnlocked
+              ? <><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0"/></>
+              : <><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></>}
+          </svg>
+          {futureUnlocked ? "Days Ahead Unlocked" : "Unlock Days Ahead"}
         </button>
         {marks.size > 0 && (
           <button onClick={clearSelection}
