@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiFetch, getUser, getToken, performLogout, startInactivityTimer, startTokenRefreshTimer } from "../utils/auth";
 import EmployeesPage from "../components/Itportal/EmployeesPage";
-import AdminsPage   from "../components/Itportal/Adminspage";
+import AdminsPage   from "../components/Itportal/AdminsPage";
 import { ITPortalProvider, useITPortal } from "../context/ITPortalContext";
 
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
