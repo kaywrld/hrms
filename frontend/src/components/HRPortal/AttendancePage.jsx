@@ -999,15 +999,15 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   const cellKey = (empId, d) => `${empId}:${dateStr(d)}`;
 
   const toggleCell = (empId, d) => {
-    if (isFutureDay(d)) return;
+    // Unmarking an already-saved day is always allowed, even if it's a
+    // future date the future-lock would otherwise block — the lock only
+    // needs to stop *new* marks from being created ahead of time.
     const recordId = existing[empId]?.[dateStr(d)]?.id;
     if (recordId) {
-      // Already saved — ask for confirmation before unmarking rather than
-      // toggling the local selection (there's nothing to "select" here,
-      // it's already on the server).
       setConfirmUnmark({ empId, date: dateStr(d), recordId, day: d });
       return;
     }
+    if (isFutureDay(d)) return;
     const key = cellKey(empId, d);
     setMarks(prev => {
       const next = new Set(prev);
