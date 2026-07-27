@@ -70,7 +70,7 @@ class AttendanceListCreateView(generics.ListCreateAPIView):
         return super().create(request, *args, **kwargs)
 
 
-class AttendanceDetailView(generics.RetrieveUpdateAPIView):
+class AttendanceDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = (IsAuthenticated,)
     serializer_class   = AttendanceRecordSerializer
 
@@ -79,6 +79,14 @@ class AttendanceDetailView(generics.RetrieveUpdateAPIView):
         if user.role == 'HOD':
             return AttendanceRecord.objects.filter(employee__department=user.department)
         return AttendanceRecord.objects.all()
+
+    def destroy(self, request, *args, **kwargs):
+        if request.user.role not in ('HOD', 'HOD_ACCOUNTS', 'HRM'):
+            return Response(
+                {'error': 'You do not have permission to unmark attendance.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 class WorkLocationListCreateView(generics.ListCreateAPIView):

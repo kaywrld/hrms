@@ -868,6 +868,19 @@ export default function HRPayslipsPage({ showToast }) {
 
   const departments = ctxDepartments || [];
 
+  // How many days each employee has on record for the viewed month —
+  // used below so inactive employees only show up when they actually
+  // worked some of that month.
+  const attendanceCountMap = useMemo(() => {
+    const m = {};
+    attAll.forEach(r => {
+      if (!["present", "late", "half_day"].includes(r.status)) return;
+      const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
+      m[empId] = (m[empId] || 0) + (r.status === "half_day" ? 0.5 : 1);
+    });
+    return m;
+  }, [attAll]);
+
   const employees = useMemo(() => {
     if (!ctxEmployees) return [];
     return ctxEmployees.map(emp => ({
@@ -884,12 +897,14 @@ export default function HRPayslipsPage({ showToast }) {
         const [jY, jM, jD] = emp.date_joined.split("-").map(Number);
         if (new Date(jY, jM - 1, jD) > viewedMonthEnd) return false;
       }
+      const isInactive = emp.status && emp.status !== "employed";
+      if (isInactive && !(attendanceCountMap[emp.id] > 0)) return false;
       const name  = (emp.full_name || [emp.first_name, emp.last_name].filter(Boolean).join(" ")).toLowerCase();
       const dept  = (emp.department_name || "").toLowerCase();
       const title = (emp.job_title || emp.position || "").toLowerCase();
       return !q || name.includes(q) || dept.includes(q) || title.includes(q);
     });
-  }, [employees, search, viewYear, viewMonth]);
+  }, [employees, search, viewYear, viewMonth, attendanceCountMap]);
 
   const prevMonth = () => {
     if (viewMonth === 0) { setViewYear(y => y-1); setViewMonth(11); }

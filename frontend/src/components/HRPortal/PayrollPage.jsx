@@ -1046,7 +1046,9 @@ export default function HRPayrollPage({ showToast }) {
         (e.site_name || "").toLowerCase() === siteFilter.toLowerCase();
       const matchStatus = statusFilter === "all" || e.status === statusFilter;
       const matchPayType = payTypeFilter === "all" || (payTypeFilter === "daily" ? e.isDaily : !e.isDaily);
-      return matchSearch && matchDept && matchSite && matchStatus && matchPayType;
+      const isInactive = e.status && e.status !== "employed";
+      const matchActiveOrWorked = !isInactive || e.daysAttended > 0;
+      return matchSearch && matchDept && matchSite && matchStatus && matchPayType && matchActiveOrWorked;
     });
   }, [enriched, search, deptFilter, siteFilter, statusFilter, payTypeFilter]);
 

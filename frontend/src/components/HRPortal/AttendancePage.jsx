@@ -906,6 +906,11 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   // working elsewhere) without changing their permanent assignment.
   const [siteDraft, setSiteDraft] = useState({});        // { empId: "Masons" }
 
+  // Unmarking an already-saved day needs a confirmation before it fires,
+  // since it's easy to misclick on a day that's already on record.
+  const [confirmUnmark, setConfirmUnmark] = useState(null); // { empId, date, dayLabel }
+  const [unmarking, setUnmarking] = useState(false);
+
   // Future days are locked by default; HR can unlock them to mark days
   // in advance for the rest of the month (e.g. pre-marking a week off).
   const [futureUnlocked, setFutureUnlocked] = useState(false);
@@ -928,7 +933,7 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
         list.forEach(r => {
           const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
           if (!map[empId]) map[empId] = {};
-          map[empId][r.date] = r.status;
+          map[empId][r.date] = { status: r.status, id: r.id };
         });
         setExisting(map);
 
@@ -994,13 +999,46 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   const cellKey = (empId, d) => `${empId}:${dateStr(d)}`;
 
   const toggleCell = (empId, d) => {
-    if (isFutureDay(d) || existing[empId]?.[dateStr(d)]) return;
+    if (isFutureDay(d)) return;
+    const recordId = existing[empId]?.[dateStr(d)]?.id;
+    if (recordId) {
+      // Already saved — ask for confirmation before unmarking rather than
+      // toggling the local selection (there's nothing to "select" here,
+      // it's already on the server).
+      setConfirmUnmark({ empId, date: dateStr(d), recordId, day: d });
+      return;
+    }
     const key = cellKey(empId, d);
     setMarks(prev => {
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
+  };
+
+  const doUnmark = async () => {
+    if (!confirmUnmark) return;
+    setUnmarking(true);
+    try {
+      const res = await apiFetch(`${API}/attendance/${confirmUnmark.recordId}/`, { method: "DELETE" });
+      if (res.ok || res.status === 204) {
+        setExisting(prev => {
+          const next = { ...prev };
+          const empRecs = { ...(next[confirmUnmark.empId] || {}) };
+          delete empRecs[confirmUnmark.date];
+          next[confirmUnmark.empId] = empRecs;
+          return next;
+        });
+        showToast?.("Day unmarked.", "success");
+      } else {
+        showToast?.("Failed to unmark that day.", "err");
+      }
+    } catch (_) {
+      showToast?.("Failed to unmark that day.", "err");
+    } finally {
+      setUnmarking(false);
+      setConfirmUnmark(null);
+    }
   };
 
   // Clicking an employee's name auto-marks their working days (Mon–Fri,
@@ -1096,7 +1134,7 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
       list.forEach(r => {
         const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
         if (!map[empId]) map[empId] = {};
-        map[empId][r.date] = r.status;
+        map[empId][r.date] = { status: r.status, id: r.id };
       });
       setExisting(map);
     } catch (_) { /* non-fatal */ }
@@ -1289,7 +1327,7 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
 
                     {dayList.map(d => {
                       const ds = dateStr(d);
-                      const status = existing[emp.id]?.[ds];
+                      const status = existing[emp.id]?.[ds]?.status;
                       const selected = marks.has(cellKey(emp.id, d));
                       const future = isFutureDay(d);
                       const clickable = !status && !future;
@@ -1320,6 +1358,26 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
           </table>
         )}
       </div>
+      {confirmUnmark && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,42,94,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: 24, maxWidth: 360, width: "90%", boxShadow: "0 20px 50px rgba(0,0,0,0.2)" }}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 16, color: "#0a2a5e", fontFamily: "'DM Sans',sans-serif" }}>Unmark this day?</h3>
+            <p style={{ margin: "0 0 20px", fontSize: 13, color: "#64748b", fontFamily: "'DM Sans',sans-serif" }}>
+              Are you sure you want to unmark day {confirmUnmark.day}? This removes the attendance record and can't be undone automatically.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmUnmark(null)} disabled={unmarking}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={doUnmark} disabled={unmarking}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#dc2626", color: "#fff", fontSize: 13, fontWeight: 700, cursor: unmarking ? "not-allowed" : "pointer" }}>
+                {unmarking ? "Unmarking…" : "Yes, Unmark"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

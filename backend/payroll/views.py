@@ -5,6 +5,9 @@ from django.core.cache import cache
 from core.permissions import IsAccountsHOD, IsHRM, CanViewEmployees
 from .models import Payroll
 from .serializers import PayrollSerializer
+from .models import Payroll, PayrollAdjustment
+from .serializers import PayrollSerializer, PayrollAdjustmentSerializer
+from rest_framework.permissions import IsAuthenticated
 
 # ── Cache helpers ─────────────────────────────────────────────────────────────
 PAYROLL_LIST_KEY = 'payroll:list'
@@ -101,3 +104,38 @@ class PayrollByEmployeeView(generics.RetrieveUpdateAPIView):
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user.username)
+
+class PayrollAdjustmentListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /api/payroll-adjustments/?year=2026&month=7  — that month's adjustments
+    POST /api/payroll-adjustments/                    — upsert (create or update)
+         body: { employee, year, month, deduction, deduction_reason, bonus }
+    """
+    permission_classes = (IsAuthenticated,)
+    serializer_class   = PayrollAdjustmentSerializer
+
+    def get_queryset(self):
+        qs    = PayrollAdjustment.objects.all()
+        year  = self.request.query_params.get('year')
+        month = self.request.query_params.get('month')
+        if year:  qs = qs.filter(year=year)
+        if month: qs = qs.filter(month=month)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        employee_id = request.data.get('employee')
+        year        = request.data.get('year')
+        month       = request.data.get('month')
+        if not (employee_id and year and month):
+            return Response({'error': 'employee, year and month are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        obj, _ = PayrollAdjustment.objects.update_or_create(
+            employee_id=employee_id, year=year, month=month,
+            defaults={
+                'deduction':        request.data.get('deduction', 0) or 0,
+                'deduction_reason': request.data.get('deduction_reason', ''),
+                'bonus':            request.data.get('bonus', 0) or 0,
+                'updated_by':       request.user.username,
+            }
+        )
+        return Response(self.get_serializer(obj).data, status=status.HTTP_200_OK)

@@ -1,0 +1,104 @@
+name: Deploy to cPanel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+        env:
+          # This project's convention is the BARE domain - components append
+          # "/api/..." themselves (see components/*/*.jsx: `${VITE_API_BASE_URL}/api`).
+          # Do not add /api here, unlike the finance app's workflow.
+          VITE_API_BASE_URL: https://hr.jeccaconnect.co.zw
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  deploy:
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      # --- Frontend: sync built static files into the subdomain's document root ---
+      - name: Deploy frontend
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.6
+        with:
+          username: ${{ secrets.HR_CPANEL_USER }}
+          server: ${{ secrets.HR_CPANEL_HOST }}
+          port: ${{ secrets.HR_CPANEL_PORT }}
+          ssh_private_key: ${{ secrets.HR_CPANEL_SSH_KEY }}
+          local_path: frontend/dist/*
+          remote_path: ${{ secrets.HR_CPANEL_PUBLIC_HTML }}
+          sftp_only: true
+
+      # --- Backend: sync source (backend/.gitignore already keeps .env,
+      # venv/, __pycache__/, media/, *.log, *.pyc out of the checkout) ------
+      - name: Deploy backend
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.6
+        with:
+          username: ${{ secrets.HR_CPANEL_USER }}
+          server: ${{ secrets.HR_CPANEL_HOST }}
+          port: ${{ secrets.HR_CPANEL_PORT }}
+          ssh_private_key: ${{ secrets.HR_CPANEL_SSH_KEY }}
+          local_path: backend/*
+          remote_path: ${{ secrets.HR_CPANEL_APP_ROOT }}
+          sftp_only: true
+
+      # --- Post-deploy: install deps, migrate, collect static, restart ----
+      # Same jailshell workarounds as the finance app: no `source`, no
+      # `pip` on default PATH, so call the venv's binaries directly by path.
+      - name: Run remote deploy steps
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HR_CPANEL_HOST }}
+          username: ${{ secrets.HR_CPANEL_USER }}
+          port: ${{ secrets.HR_CPANEL_PORT }}
+          key: ${{ secrets.HR_CPANEL_SSH_KEY }}
+          envs: HR_CPANEL_APP_ROOT,HR_CPANEL_VENV_ACTIVATE
+          script: |
+            set -e
+            cd "$HR_CPANEL_APP_ROOT"
+            ACTIVATE_PATH="$(printf '%s' "$HR_CPANEL_VENV_ACTIVATE" | grep -oE '[^[:space:]]+/bin/activate')"
+            VENV_BIN="$(dirname "$ACTIVATE_PATH")"
+            "$VENV_BIN/pip" install -r requirements.txt
+            "$VENV_BIN/python" manage.py migrate --noinput
+            "$VENV_BIN/python" manage.py collectstatic --noinput
+            mkdir -p tmp
+            touch tmp/restart.txt
+        env:
+          HR_CPANEL_APP_ROOT: ${{ secrets.HR_CPANEL_APP_ROOT }}
+          HR_CPANEL_VENV_ACTIVATE: ${{ secrets.HR_CPANEL_VENV_ACTIVATE }}

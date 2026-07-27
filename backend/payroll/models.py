@@ -33,3 +33,21 @@ class Payroll(models.Model):
 
     def __str__(self):
         return f"{self.employee} — Net: {self.net_salary} {self.currency}"
+
+class PayrollAdjustment(models.Model):
+    """One row per employee per month, holding that month's deduction/bonus —
+    separate from the static Payroll row, since these change month to month."""
+    employee         = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='payroll_adjustments')
+    year             = models.IntegerField()
+    month            = models.IntegerField()  # 1–12
+    deduction        = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    deduction_reason = models.CharField(max_length=255, blank=True)
+    bonus            = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    updated_at       = models.DateTimeField(auto_now=True)
+    updated_by       = models.CharField(max_length=100, blank=True)
+
+    class Meta:
+        unique_together = ('employee', 'year', 'month')
+
+    def __str__(self):
+        return f"{self.employee} {self.year}-{self.month:02d} — ded {self.deduction}, bonus {self.bonus}"

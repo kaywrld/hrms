@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Payroll
+from .models import Payroll, PayrollAdjustment
 
 class PayrollSerializer(serializers.ModelSerializer):
     net_salary    = serializers.ReadOnlyField()
@@ -22,3 +22,9 @@ class PayrollSerializer(serializers.ModelSerializer):
         if pay_type == 'daily' and not daily_rate:
             raise serializers.ValidationError({'daily_rate': 'Required for daily-rate employees.'})
         return data
+
+class PayrollAdjustmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = PayrollAdjustment
+        fields = '__all__'
+        read_only_fields = ('updated_at', 'updated_by')
