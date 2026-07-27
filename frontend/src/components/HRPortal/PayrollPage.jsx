@@ -89,26 +89,21 @@ function isWorkingDay(dateStr) {
   return !holidays.has(dateStr);
 }
 
-// ── Storage helpers ───────────────────────────────────────────────────────────
-function getStorageKey(empId, year, month) {
-  return `payroll_${empId}_${year}_${String(month + 1).padStart(2, "0")}`;
-}
-
-function loadPayrollEntry(empId, year, month) {
+// ── Payroll adjustment persistence (deduction + bonus, per employee/month) ───
+async function savePayrollAdjustment(empId, year, month, data) {
   try {
-    const key = getStorageKey(empId, year, month);
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : { deduction: "", bonus: "", deductionReason: "" };
-  } catch {
-    return { deduction: "", bonus: "", deductionReason: "" };
-  }
-}
-
-function savePayrollEntry(empId, year, month, data) {
-  try {
-    const key = getStorageKey(empId, year, month);
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch {}
+    await apiFetch(`${API}/payroll-adjustments/`, {
+      method: "POST",
+      body: JSON.stringify({
+        employee: empId,
+        year,
+        month: month + 1, // convert JS's 0-indexed month to 1–12
+        deduction: data.deduction || 0,
+        deduction_reason: data.deductionReason || "",
+        bonus: data.bonus || 0,
+      }),
+    });
+  } catch (_) { /* non-fatal — value stays in local state either way */ }
 }
 
 // ── ZiG exchange rate: valid for the calendar day it was set, then expires ────
@@ -932,20 +927,36 @@ export default function HRPayrollPage({ showToast }) {
   // Keyed by empId → { deduction: string, bonus: string }
   const [payrollEdits, setPayrollEdits] = useState({});
 
-  // Load from localStorage when month/employees change
+  // Load this month's deductions/bonuses from the backend whenever the
+  // viewed month or employee list changes.
   useEffect(() => {
     if (!ctxEmployees) return;
-    const loaded = {};
-    ctxEmployees.forEach(emp => {
-      loaded[emp.id] = loadPayrollEntry(emp.id, viewYear, viewMonth);
-    });
-    setPayrollEdits(loaded);
+    let cancelled = false;
+    apiFetch(`${API}/payroll-adjustments/?year=${viewYear}&month=${viewMonth + 1}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : data.results || [];
+        const map = {};
+        ctxEmployees.forEach(emp => { map[emp.id] = { deduction: "", bonus: "", deductionReason: "" }; });
+        list.forEach(adj => {
+          const empId = typeof adj.employee === "object" ? adj.employee.id : adj.employee;
+          map[empId] = {
+            deduction: Number(adj.deduction) ? String(adj.deduction) : "",
+            bonus: Number(adj.bonus) ? String(adj.bonus) : "",
+            deductionReason: adj.deduction_reason || "",
+          };
+        });
+        setPayrollEdits(map);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [ctxEmployees, viewYear, viewMonth]);
 
   const updateEdit = useCallback((empId, field, value) => {
     setPayrollEdits(prev => {
       const updated = { ...prev, [empId]: { ...(prev[empId] || {}), [field]: value } };
-      savePayrollEntry(empId, viewYear, viewMonth, updated[empId]);
+      savePayrollAdjustment(empId, viewYear, viewMonth, updated[empId]);
       return updated;
     });
   }, [viewYear, viewMonth]);
