@@ -914,10 +914,23 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   // Future days are locked by default; HR can unlock them to mark days
   // in advance for the rest of the month (e.g. pre-marking a week off).
   const [futureUnlocked, setFutureUnlocked] = useState(false);
+  // Mobile-friendly "Day View" — one day at a time as big tappable cards,
+  // instead of the wide multi-day grid (which can't fit a phone screen no
+  // matter how it's squeezed). Auto-defaults on for narrow screens.
+  const [dayViewMode, setDayViewMode] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth < 720
+  );
+  const [dayCursor, setDayCursor] = useState(todayObj.getDate());
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
   const monthEnd   = `${year}-${String(month + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+
+  // If the month changes to one with fewer days (or the cursor is stale
+  // from a previous month), clamp it back into range.
+  useEffect(() => {
+    setDayCursor(d => Math.min(Math.max(d, 1), daysInMonth));
+  }, [daysInMonth]);
 
   // Fetch existing records for the whole month whenever it changes
   useEffect(() => {
@@ -1220,6 +1233,17 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
           </svg>
           {futureUnlocked ? "Days Ahead Unlocked" : "Unlock Days Ahead"}
         </button>
+        <button onClick={() => setDayViewMode(v => !v)}
+          title={dayViewMode ? "Switch to the full multi-day grid" : "Switch to one-day-at-a-time view — easier on mobile"}
+          className="reg-btn"
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 9, border: "1.5px solid " + (dayViewMode ? "#1557b0" : "#e2e8f0"), background: dayViewMode ? "#eff6ff" : "#fff", color: dayViewMode ? "#1557b0" : "#64748b", fontSize: 12.5, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            {dayViewMode
+              ? <rect x="3" y="3" width="18" height="18" rx="2"/>
+              : <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>}
+          </svg>
+          {dayViewMode ? "Day View" : "Grid View"}
+        </button>
         {marks.size > 0 && (
           <button onClick={clearSelection}
             className="reg-btn"
@@ -1263,6 +1287,86 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: 48, textAlign: "center", color: "#94a3b8", fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>No employees match your filters.</div>
+        ) : dayViewMode ? (
+          <div style={{ padding: "16px 14px" }}>
+            {/* Day navigator */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, marginBottom: 18 }}>
+              <button onClick={() => setDayCursor(d => Math.max(1, d - 1))} disabled={dayCursor <= 1}
+                style={{ width: 38, height: 38, borderRadius: 9, border: "1.5px solid #e2e8f0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: dayCursor <= 1 ? "not-allowed" : "pointer", opacity: dayCursor <= 1 ? 0.4 : 1, color: "#1557b0", flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              <div style={{ textAlign: "center", minWidth: 150 }}>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: "#0a2a5e" }}>
+                  {new Date(year, month, dayCursor).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+                </div>
+                {(() => {
+                  const dow = new Date(year, month, dayCursor).getDay();
+                  const weekend = dow === 0 || dow === 6;
+                  const holiday = !weekend && isHoliday(dayCursor);
+                  if (!weekend && !holiday) return null;
+                  return (
+                    <div style={{ fontSize: 11, fontWeight: 700, color: weekend ? "#dc2626" : "#d97706", marginTop: 2 }}>
+                      {weekend ? "Weekend" : "Public Holiday"}
+                    </div>
+                  );
+                })()}
+              </div>
+              <button onClick={() => setDayCursor(d => Math.min(daysInMonth, d + 1))} disabled={dayCursor >= daysInMonth}
+                style={{ width: 38, height: 38, borderRadius: 9, border: "1.5px solid #e2e8f0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: dayCursor >= daysInMonth ? "not-allowed" : "pointer", opacity: dayCursor >= daysInMonth ? 0.4 : 1, color: "#1557b0", flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+
+            {/* One big card per employee, for this one day */}
+            {filtered.map(emp => {
+              const ds = dateStr(dayCursor);
+              const status = existing[emp.id]?.[ds]?.status;
+              const selected = marks.has(cellKey(emp.id, dayCursor));
+              const future = isFutureDay(dayCursor);
+              const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
+              const defaultSite = emp.site_name || (sites || []).find(s => s.id === emp.site)?.name || "";
+              const current = siteDraft[emp.id] || "";
+              const isTemporary = defaultSite && current && current !== defaultSite;
+              const cfg = status ? (STATUS_CONFIG[status] || { color: "#64748b", bg: "#f1f5f9" }) : null;
+              const locked = future && !status;
+
+              return (
+                <div key={emp.id} style={{ background: "#fafbff", border: "1.5px solid #e2e8f0", borderRadius: 12, padding: "14px", marginBottom: 10 }}>
+                  <div style={{ fontWeight: 700, color: "#0a2a5e", fontSize: 14.5, marginBottom: 2 }}>{fullName}</div>
+                  {emp.department_name && <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 10 }}>{emp.department_name}</div>}
+
+                  <select
+                    value={current}
+                    onChange={ev => setSiteDraft(d => ({ ...d, [emp.id]: ev.target.value }))}
+                    style={{ width: "100%", boxSizing: "border-box", padding: "9px 11px", border: "1.5px solid " + (isTemporary ? "#d97706" : "#e2e8f0"), borderRadius: 8, fontSize: 13.5, fontFamily: "'DM Sans',sans-serif", color: "#334155", marginBottom: 10, background: isTemporary ? "#fffbeb" : "#fff", outline: "none" }}>
+                    <option value="">— Select site —</option>
+                    {(sites || []).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                  </select>
+                  {isTemporary && (
+                    <div style={{ fontSize: 10.5, color: "#b45309", marginTop: -6, marginBottom: 10 }}>
+                      Temporary — default: {defaultSite}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => !locked && toggleCell(emp.id, dayCursor)}
+                    disabled={locked}
+                    style={{
+                      width: "100%", padding: "13px", borderRadius: 10, fontWeight: 700, fontSize: 14,
+                      fontFamily: "'DM Sans',sans-serif", cursor: locked ? "not-allowed" : "pointer",
+                      background: selected ? "#16a34a" : status ? cfg.bg : locked ? "#f1f5f9" : "#fff",
+                      color: selected ? "#fff" : status ? cfg.color : "#64748b",
+                      border: selected ? "none" : status ? `1.5px solid ${cfg.color}` : "1.5px dashed #cbd5e1",
+                    }}>
+                    {selected ? "✓ Marked Present — tap to unselect"
+                      : status ? `${STATUS_CONFIG[status]?.label || status} — tap to unmark`
+                      : locked ? "Future date — locked"
+                      : "Tap to mark Present"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         ) : (
           <table style={{ borderCollapse: "collapse", fontFamily: "'DM Sans',sans-serif", fontSize: 12 }}>
             <thead>
