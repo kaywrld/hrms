@@ -92,7 +92,7 @@ function isWorkingDay(dateStr) {
 // ── Payroll adjustment persistence (deduction + bonus, per employee/month) ───
 async function savePayrollAdjustment(empId, year, month, data) {
   try {
-    await apiFetch(`${API}/payroll-adjustments/`, {
+    await apiFetch(`${API}/payroll/payroll-adjustments/`, {
       method: "POST",
       body: JSON.stringify({
         employee: empId,
@@ -103,7 +103,7 @@ async function savePayrollAdjustment(empId, year, month, data) {
         bonus: data.bonus || 0,
       }),
     });
-  } catch (_) { /* non-fatal — value stays in local state either way */ }
+  } catch (err) { console.error("Failed to save payroll adjustment:", err); }
 }
 
 // ── ZiG exchange rate: valid for the calendar day it was set, then expires ────
@@ -932,7 +932,7 @@ export default function HRPayrollPage({ showToast }) {
   useEffect(() => {
     if (!ctxEmployees) return;
     let cancelled = false;
-    apiFetch(`${API}/payroll-adjustments/?year=${viewYear}&month=${viewMonth + 1}`)
+    apiFetch(`${API}/payroll/payroll-adjustments/?year=${viewYear}&month=${viewMonth + 1}`)
       .then(r => r.ok ? r.json() : [])
       .then(data => {
         if (cancelled) return;
