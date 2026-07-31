@@ -1950,6 +1950,22 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
     return m;
   }, [attendanceAll]);
 
+  // Days a monthly-salary employee was marked present on a WEEKEND or
+  // PUBLIC HOLIDAY — these don't count as normal working days on their own,
+  // but they offset normal working days that were missed, so someone who
+  // comes in on their day off isn't penalized for the missed weekday while
+  // also not being paid for the day they actually worked.
+  const extraDayCreditMap = useMemo(() => {
+    const m = {};
+    attendanceAll.forEach(rec => {
+      if (rec.status !== "present" && rec.status !== "late" && rec.status !== "half_day") return;
+      if (isWorkingDay(rec.date)) return; // only non-working days count as "extra"
+      const empId = typeof rec.employee === "object" ? rec.employee.id : rec.employee;
+      m[empId] = (m[empId] || 0) + (rec.status === "half_day" ? 0.5 : 1);
+    });
+    return m;
+  }, [attendanceAll]);
+
   const enriched = useMemo(() => {
     if (!employees) return [];
     return employees.map(emp => {
@@ -1957,12 +1973,22 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
       const isDaily    = pr.payType === "daily";
       const monthlySalary  = isDaily ? 0 : pr.basicSalary;
       const dailyRate      = isDaily ? pr.dailyRate : (workingDaysThisMonth > 0 ? pr.basicSalary / workingDaysThisMonth : 0);
-      const daysAttended   = isDaily ? (attendanceAllDaysMap[emp.id] || 0) : (attendanceMap[emp.id] || 0);
+
+      // Monthly-salary employees: extra weekend/holiday attendance offsets
+      // missed normal working days — capped so it can never push attendance
+      // above 100% of the month's working days.
+      const normalDaysAttended  = attendanceMap[emp.id] || 0;
+      const extraDayCredit      = extraDayCreditMap[emp.id] || 0;
+      const missingDays         = Math.max(0, workingDaysThisMonth - normalDaysAttended);
+      const creditApplied       = Math.min(extraDayCredit, missingDays);
+      const monthlyDaysAttended = normalDaysAttended + creditApplied;
+
+      const daysAttended   = isDaily ? (attendanceAllDaysMap[emp.id] || 0) : monthlyDaysAttended;
       const amountToBePaid = dailyRate * daysAttended;
       const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
-      return { ...emp, fullName, isDaily, monthlySalary, dailyRate, daysAttended, amountToBePaid };
+      return { ...emp, fullName, isDaily, monthlySalary, dailyRate, daysAttended, amountToBePaid, creditApplied: isDaily ? 0 : creditApplied };
     });
-  }, [employees, payrollMap, attendanceMap, attendanceAllDaysMap, workingDaysThisMonth]);
+  }, [employees, payrollMap, attendanceMap, attendanceAllDaysMap, extraDayCreditMap, workingDaysThisMonth]);
 
   const filtered = useMemo(() => {
     if (!enriched.length) return [];
@@ -2358,6 +2384,11 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
                       </td>
                       <td className="emp-td" style={{ padding: "11px 14px", minWidth: 150 }}>
                         <AttBar attended={emp.daysAttended} total={emp.isDaily ? daysInThisMonth : workingDaysThisMonth} />
+                        {emp.creditApplied > 0 && (
+                          <div style={{ fontSize: 10, color: "#059669", fontFamily: "'DM Sans',sans-serif", marginTop: 2 }}>
+                            +{emp.creditApplied} weekend/holiday day{emp.creditApplied === 1 ? "" : "s"} covering absence
+                          </div>
+                        )}
                       </td>
                       <td className="emp-td" style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", fontSize: 12.5, color: emp.monthlySalary > 0 ? "#0f172a" : "#cbd5e1", whiteSpace: "nowrap" }}>
                         {emp.isDaily ? <span style={{ color: "#cbd5e1" }}>—</span> : (emp.monthlySalary > 0 ? fmt$(emp.monthlySalary) : <span style={{ color: "#cbd5e1" }}>Not set</span>)}
