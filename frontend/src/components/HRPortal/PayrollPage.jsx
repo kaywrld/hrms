@@ -1004,6 +1004,24 @@ export default function HRPayrollPage({ showToast }) {
     return m;
   }, [attendanceAll, viewYear, viewMonth]);
 
+  // Days a monthly-salary employee was marked present on a WEEKEND or
+  // PUBLIC HOLIDAY — these don't count as normal working days on their own,
+  // but they can offset normal working days that were missed, so someone
+  // who comes in on their day off isn't penalized twice (once for the
+  // missed weekday, once for not being paid for the day they did work).
+  const extraDayCreditMap = useMemo(() => {
+    const m = {};
+    attendanceAll.forEach(rec => {
+      if (rec.status !== "present" && rec.status !== "late" && rec.status !== "half_day") return;
+      if (isWorkingDay(rec.date)) return; // only non-working days count as "extra"
+      const recDate = new Date(rec.date);
+      if (recDate.getFullYear() !== viewYear || recDate.getMonth() !== viewMonth) return;
+      const empId = typeof rec.employee === "object" ? rec.employee.id : rec.employee;
+      m[empId] = (m[empId] || 0) + (rec.status === "half_day" ? 0.5 : 1);
+    });
+    return m;
+  }, [attendanceAll, viewYear, viewMonth]);
+
   const daysInViewedMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
   const enriched = useMemo(() => {
@@ -1021,7 +1039,16 @@ export default function HRPayrollPage({ showToast }) {
       const dailyRate     = isDaily
         ? (parseFloat(payrollEntry.daily_rate) || 0)
         : (workingDays > 0 ? monthlySalary / workingDays : 0);
-      const daysAttended  = isDaily ? (attendanceAllDaysMap[emp.id] || 0) : (attendanceMap[emp.id] || 0);
+      // Monthly-salary employees: extra weekend/holiday attendance offsets
+      // missed normal working days — capped so it can never push attendance
+      // above 100% of the month's working days (this makes someone whole,
+      // it doesn't grant bonus days on top of a full attendance record).
+      const normalDaysAttended = attendanceMap[emp.id] || 0;
+      const extraDayCredit     = extraDayCreditMap[emp.id] || 0;
+      const missingDays        = Math.max(0, workingDays - normalDaysAttended);
+      const creditApplied      = Math.min(extraDayCredit, missingDays);
+      const monthlyDaysAttended = normalDaysAttended + creditApplied;
+      const daysAttended  = isDaily ? (attendanceAllDaysMap[emp.id] || 0) : monthlyDaysAttended;
       const netSalary     = dailyRate * daysAttended;
       const edits         = payrollEdits[emp.id] || {};
       const deduction     = parseFloat(edits.deduction) || 0;
@@ -1033,6 +1060,7 @@ export default function HRPayrollPage({ showToast }) {
       return {
         ...emp, fullName, deptName, siteNameVal, isDaily,
         monthlySalary, dailyRate, daysAttended,
+        creditApplied: isDaily ? 0 : creditApplied,
         netSalary, deduction, bonus, finalPay,
         deductionStr: edits.deduction || "",
         bonusStr:     edits.bonus || "",
@@ -1040,7 +1068,7 @@ export default function HRPayrollPage({ showToast }) {
         bankName, bankAccount,
       };
     });
-  }, [ctxEmployees, payrollMap, attendanceMap, attendanceAllDaysMap, workingDays, departments, sites, payrollEdits, currency]);
+  }, [ctxEmployees, payrollMap, attendanceMap, attendanceAllDaysMap, extraDayCreditMap, workingDays, departments, sites, payrollEdits, currency]);
 
   const filtered = useMemo(() => {
     return enriched.filter(e => {
@@ -1584,9 +1612,14 @@ export default function HRPayrollPage({ showToast }) {
                         )}
                       </td>
 
-                      {/* Attendance */}
-                      <td style={{ padding: "11px 14px", minWidth: 130 }}>
+                     {/* Attendance */}
+                     <td style={{ padding: "11px 14px", minWidth: 130 }}>
                         <AttBar attended={emp.daysAttended} total={emp.isDaily ? daysInViewedMonth : workingDays} />
+                        {emp.creditApplied > 0 && (
+                          <div style={{ fontSize: 10, color: "#059669", fontFamily: "'DM Sans',sans-serif", marginTop: 2 }}>
+                            +{emp.creditApplied} weekend/holiday day{emp.creditApplied === 1 ? "" : "s"} covering absence
+                          </div>
+                        )}
                       </td>
 
                       {/* Base Salary */}
