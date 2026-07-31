@@ -1,16 +1,10 @@
-// Bump this on any meaningful change to caching behavior — it forces
-// old cached entries to be thrown out on the next activate.
 const CACHE_NAME    = 'jecca-hrms-v2';
 const STATIC_ASSETS = [
   '/bg.jpeg',
   '/logo.jpeg',
 ];
+const APP_SHELL_KEY = '/'; // one consistent cache key for "the current HTML shell"
 
-// Install: cache the small set of rarely-changing static assets.
-// Deliberately does NOT pre-cache '/' or '/index.html' — those must
-// always be checked against the network first (see fetch handler below),
-// otherwise a new deploy's HTML (and the new hashed JS/CSS filenames it
-// points to) can never be seen after the very first visit.
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
@@ -21,7 +15,6 @@ self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
-// Activate: remove old caches, take control of open tabs immediately.
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -45,7 +38,7 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET') return;
   if (url.protocol === 'chrome-extension:') return;
 
-  // API calls → Network First, fallback to cache (unchanged).
+  // API calls → Network First, fallback to cache.
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
@@ -59,29 +52,33 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Page navigations (loading '/' or any route) and index.html itself →
-  // Network First. This is the fix: always try to get the freshest HTML
-  // when online, so it always references the current build's JS/CSS.
-  // Only falls back to a cached copy if the network request fails
-  // (i.e. genuinely offline), which is exactly what offline support needs.
+  // Page navigations → Network First. Every successful load overwrites a
+  // single "app shell" cache entry (keyed as '/', regardless of which SPA
+  // route was actually requested) — that's what's offered offline, so it's
+  // always the most recently seen version, never a permanently stale one.
   const isNavigation = request.mode === 'navigate' || url.pathname === '/index.html';
   if (isNavigation) {
     event.respondWith(
       fetch(request)
         .then(response => {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+          caches.open(CACHE_NAME).then(cache => cache.put(APP_SHELL_KEY, clone));
           return response;
         })
-        .catch(() => caches.match(request).then(cached => cached || caches.match('/')))
+        .catch(async () => {
+          const cached = await caches.match(APP_SHELL_KEY);
+          // Guaranteed fallback — never resolves to undefined, which is
+          // what caused the "Failed to fetch" error.
+          return cached || new Response(
+            '<h1>You are offline</h1><p>Please reconnect and try again.</p>',
+            { status: 503, headers: { 'Content-Type': 'text/html' } }
+          );
+        })
     );
     return;
   }
 
-  // Everything else (Vite's hashed JS/CSS bundles, images, fonts) →
-  // Cache First is safe here: a new deploy gives these new filenames
-  // (content hash baked in), so there's no staleness risk — old and new
-  // versions simply have different URLs and never collide.
+  // Everything else (hashed JS/CSS bundles, images, fonts) → Cache First.
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;
