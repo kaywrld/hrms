@@ -40,8 +40,27 @@
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js')
-            .then(reg => console.log('SW registered:', reg.scope))
+            .then(reg => {
+              console.log('SW registered:', reg.scope);
+              // Re-check for a newer sw.js whenever the tab regains focus —
+              // catches updates without waiting for the browser's own
+              // (much less frequent) background check interval.
+              document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') reg.update();
+              });
+            })
             .catch(err => console.log('SW failed:', err));
+
+          // Once a new service worker takes control (after skipWaiting +
+          // clients.claim on activate), reload once so the page picks up
+          // the fresh HTML/JS immediately instead of waiting for a manual
+          // refresh.
+          let refreshed = false;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (refreshed) return;
+            refreshed = true;
+            window.location.reload();
+          });
         });
       }
     </script>
