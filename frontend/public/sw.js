@@ -82,13 +82,19 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;
-      return fetch(request).then(response => {
-        if (response && response.status === 200) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
-        }
-        return response;
-      });
+      return fetch(request)
+        .then(response => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(err => {
+          // Guaranteed fallback — never leaves the promise unhandled.
+          console.warn('[SW] Fetch failed for', request.url, err);
+          return new Response('', { status: 504, statusText: 'Gateway Timeout (offline)' });
+        });
     })
   );
 });
