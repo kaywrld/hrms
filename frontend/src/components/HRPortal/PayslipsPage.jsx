@@ -13,7 +13,7 @@ const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 const COMPANY = {
   name:    "JECCA ENGINEERING (PVT) LTD",
   tagline: "Premium Quality Engineering",
-  address: "3148 Lavenham Drive, Bluffhill, Harare, Zimbabwe",
+  address: "3148 Flame Lilly, Bluffhill, Harare, Zimbabwe",
   phone:   "Cell: 071 948 2663/078 495 1117",
   email:   "info@jeccaengineering.co.zw",
   logo:    "/logo.jpeg",
