@@ -35,33 +35,43 @@
       }
     </style>
 
-    <!-- Service Worker registration -->
+    <!-- Service Worker registration — production only. Local dev (Vite's
+    dev server on localhost) never needs offline support, and running
+    a service worker against it causes exactly the kind of confusing,
+    intermittent "Failed to fetch" errors that have nothing to do with
+    real app code — the SW and Vite's HMR/reload cycle fight each other. -->
     <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
-            .then(reg => {
-              console.log('SW registered:', reg.scope);
-              // Re-check for a newer sw.js whenever the tab regains focus —
-              // catches updates without waiting for the browser's own
-              // (much less frequent) background check interval.
-              document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible') reg.update();
-              });
-            })
-            .catch(err => console.log('SW failed:', err));
+      const isLocalDev = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
-          // Once a new service worker takes control (after skipWaiting +
-          // clients.claim on activate), reload once so the page picks up
-          // the fresh HTML/JS immediately instead of waiting for a manual
-          // refresh.
-          let refreshed = false;
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            if (refreshed) return;
-            refreshed = true;
-            window.location.reload();
+      if ('serviceWorker' in navigator) {
+        if (isLocalDev) {
+          // Clean up any service worker left registered from earlier testing,
+          // so local dev goes back to behaving like a normal, uncached site.
+          navigator.serviceWorker.getRegistrations().then(regs => {
+            regs.forEach(reg => reg.unregister());
           });
-        });
+          if (window.caches) {
+            caches.keys().then(keys => keys.forEach(key => caches.delete(key)));
+          }
+        } else {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js')
+              .then(reg => {
+                console.log('SW registered:', reg.scope);
+                document.addEventListener('visibilitychange', () => {
+                  if (document.visibilityState === 'visible') reg.update();
+                });
+              })
+              .catch(err => console.log('SW failed:', err));
+
+            let refreshed = false;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+              if (refreshed) return;
+              refreshed = true;
+              window.location.reload();
+            });
+          });
+        }
       }
     </script>
   </head>

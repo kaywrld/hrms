@@ -146,7 +146,7 @@ class EmployeeListSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'employee_number', 'first_name', 'last_name', 'middle_name',
             'job_title', 'department', 'department_name', 'site', 'site_name',
-            'gender', 'phone_number', 'email',
+            'gender', 'phone_number', 'email', 'address',
             'status', 'profile_picture', 'employment_type',
             'date_joined',
         )
