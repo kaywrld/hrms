@@ -1548,9 +1548,10 @@ export default function HRPayrollPage({ showToast }) {
             <table className="pr-table" style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'DM Sans',sans-serif", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#fafbff", borderBottom: "1.5px solid #e2e8f0" }}>
-                  {[
+                {[
                     "Employee",
                     "Job Title",
+                    "Address",
                     "Attendance",
                     `Base Salary (${currency})`,
                     `Net Salary (${currency})`,
@@ -1569,14 +1570,14 @@ export default function HRPayrollPage({ showToast }) {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={8} style={{ padding: "48px 16px", textAlign: "center" }}>
+                  <tr><td colSpan={9} style={{ padding: "48px 16px", textAlign: "center" }}>
                     <div style={{ display: "inline-flex", alignItems: "center", gap: 10, color: "#94a3b8", fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>
                       <div style={{ width: 22, height: 22, border: "3px solid #e8edf8", borderTopColor: "#1557b0", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
                       Loading payroll data…
                     </div>
                   </td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={8} style={{ padding: "48px 16px", textAlign: "center", color: "#94a3b8", fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>
+                  <tr><td colSpan={9} style={{ padding: "48px 16px", textAlign: "center", color: "#94a3b8", fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>
                     No employees match your filters.
                   </td></tr>
                 ) : filtered.map((emp, i) => {
@@ -1612,6 +1613,12 @@ export default function HRPayrollPage({ showToast }) {
                             Daily
                           </span>
                         )}
+                      </td>
+
+                      {/* Address */}
+                      <td style={{ padding: "11px 14px", color: "#64748b", fontSize: 12, maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                        title={emp.address || ""}>
+                        {emp.address || <span style={{ color: "#cbd5e1" }}>—</span>}
                       </td>
 
                      {/* Attendance */}
@@ -1712,7 +1719,7 @@ export default function HRPayrollPage({ showToast }) {
               {!loading && filtered.length > 0 && (
                 <tfoot>
                   <tr style={{ background: "linear-gradient(135deg,#f8faff,#eff6ff)", borderTop: "2px solid #e2e8f0" }}>
-                    <td colSpan={2} style={{ padding: "12px 14px", fontWeight: 700, fontSize: 12, color: "#0a2a5e", fontFamily: "'DM Sans',sans-serif" }}>
+                    <td colSpan={3} style={{ padding: "12px 14px", fontWeight: 700, fontSize: 12, color: "#0a2a5e", fontFamily: "'DM Sans',sans-serif" }}>
                       Totals ({filtered.length} employees)
                     </td>
                     {/* Attendance col — blank */}
