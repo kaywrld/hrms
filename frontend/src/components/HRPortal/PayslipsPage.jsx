@@ -108,6 +108,16 @@ function hoursForRecord(rec) {
 function fmtUSD(n) {
   return `$${Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 }
+
+function fmtMoney(amount, currency, zigRate) {
+  const num = Number(amount) || 0;
+  if (currency === "ZIG") {
+    const zig = num * (parseFloat(zigRate) || 1);
+    return `ZiG ${zig.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function fmtHours(h) {
   if (!h) return "0h 0m";
   const hrs  = Math.floor(h);
@@ -137,6 +147,31 @@ function loadEdits(empId, year, month) {
     const s = localStorage.getItem(lsKey(empId, year, month));
     return s ? JSON.parse(s) : { deduction:"", bonus:"", deductionReason:"" };
   } catch { return { deduction:"", bonus:"", deductionReason:"" }; }
+}
+
+// ── ZiG exchange rate — SAME localStorage key as the Payroll page, kept per
+// payroll month (never expires), so a rate set on either page is instantly
+// available on the other, and switching months recalls that month's own rate.
+const ZIG_RATES_STORAGE_KEY = "hr_payroll_zig_rates";
+function zigMonthKey(year, month) {
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+function loadAllZigRates() {
+  try {
+    const stored = localStorage.getItem(ZIG_RATES_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch { return {}; }
+}
+function getZigRateForMonth(year, month) {
+  const rates = loadAllZigRates();
+  return rates[zigMonthKey(year, month)] || null;
+}
+function saveZigRateForMonth(year, month, rate) {
+  try {
+    const rates = loadAllZigRates();
+    rates[zigMonthKey(year, month)] = rate;
+    localStorage.setItem(ZIG_RATES_STORAGE_KEY, JSON.stringify(rates));
+  } catch {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,7 +274,7 @@ async function generateAndDownloadPDF(htmlContent, filename = "payslips.pdf") {
 // ─────────────────────────────────────────────────────────────────────────────
 // PayslipDocument — the clean, printable payslip card shown on screen
 // ─────────────────────────────────────────────────────────────────────────────
-function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edits }) {
+function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edits, currency, zigRate }) {
   const deduction       = parseFloat(edits?.deduction)       || 0;
   const bonus           = parseFloat(edits?.bonus)           || 0;
   const deductionReason = edits?.deductionReason             || "";
@@ -281,7 +316,11 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
   const jobTitle   = emp.job_title || emp.position || "—";
   const department = emp.department_name || "—";
   const empNo      = emp.employee_number || emp.employee_id || emp.emp_id || `JE-${String(emp.id).padStart(3,"0")}`;
-  const currency   = payrollRecord?.currency || "USD";
+ // currency now comes from the page-level toggle, not the saved payroll
+  // record — shadowing fmtUSD here means every existing fmtUSD(...) call
+  // below automatically renders in whichever currency is selected, with
+  // no other changes needed inside this component.
+  const fmtUSD = (n) => fmtMoney(n, currency, zigRate);
   const bankName   = currency === "ZIG" ? (payrollRecord?.bank_name_zig || emp.bank_name_zig || "—") : (payrollRecord?.bank_name_usd || emp.bank_name_usd || "—");
   const bankAcct   = currency === "ZIG" ? (payrollRecord?.bank_account_zig || emp.bank_account_zig || "—") : (payrollRecord?.bank_account_usd || emp.bank_account_usd || "—");
   const natId      = emp.national_id || emp.national_id_number || "—";
@@ -571,7 +610,7 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
           Net Pay
         </div>
         <div style={{ fontSize: 24, fontWeight: 800, color: T.navy, letterSpacing: "0.01em", fontFamily: "'DM Sans', sans-serif" }}>
-          {fmtUSD(netPay)} {currency}
+          {fmtUSD(netPay)}
         </div>
       </div>
 
@@ -618,7 +657,7 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
 // ─────────────────────────────────────────────────────────────────────────────
 // HTML string builder for PDF (mirrors PayslipDocument layout)
 // ─────────────────────────────────────────────────────────────────────────────
-function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits }) {
+function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits, currency, zigRate }) {
   const deduction       = parseFloat(edits?.deduction)       || 0;
   const bonus           = parseFloat(edits?.bonus)           || 0;
   const deductionReason = edits?.deductionReason             || "";
@@ -654,7 +693,11 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
   const jobTitle   = emp.job_title || emp.position || "—";
   const department = emp.department_name || "—";
   const empNo      = emp.employee_number || emp.employee_id || emp.emp_id || `JE-${String(emp.id).padStart(3,"0")}`;
-  const currency   = payrollRecord?.currency || "USD";
+ // currency now comes from the page-level toggle, not the saved payroll
+  // record — shadowing fmtUSD here means every existing fmtUSD(...) call
+  // below automatically renders in whichever currency is selected, with
+  // no other changes needed inside this component.
+  const fmtUSD = (n) => fmtMoney(n, currency, zigRate);
   const bankName   = currency === "ZIG" ? (payrollRecord?.bank_name_zig || emp.bank_name_zig || "—") : (payrollRecord?.bank_name_usd || emp.bank_name_usd || "—");
   const bankAcct   = currency === "ZIG" ? (payrollRecord?.bank_account_zig || emp.bank_account_zig || "—") : (payrollRecord?.bank_account_usd || emp.bank_account_usd || "—");
   const natId      = emp.national_id || emp.national_id_number || "";
@@ -678,6 +721,42 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
     </div>` : "";
 
   return `
+
+  function ZigRateModal({ currentRate, onClose, onSave }) {
+    const [rate, setRate] = useState(currentRate || "");
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(10,26,80,0.52)", zIndex: 9998, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        onClick={e => e.target === e.currentTarget && onClose()}>
+        <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 380, boxShadow: "0 28px 72px rgba(0,0,0,0.18)", overflow: "hidden" }}>
+          <div style={{ background: `linear-gradient(135deg,${T.navy},${T.navyMid})`, padding: "16px 20px" }}>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 15, fontWeight: 700, color: "#fff" }}>Set ZiG Exchange Rate</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", marginTop: 2 }}>1 USD = ? ZiG — for this month's payslips</div>
+          </div>
+          <div style={{ padding: 20 }}>
+            <div style={{ position: "relative" }}>
+              <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 12, fontWeight: 700, color: T.navyMid, pointerEvents: "none" }}>1 USD =</span>
+              <input
+                type="number" min="0" step="0.01" value={rate} autoFocus
+                onChange={e => setRate(e.target.value)}
+                placeholder="e.g. 30.23"
+                onKeyDown={e => { if (e.key === "Enter" && rate && parseFloat(rate) > 0) onSave(rate); }}
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 13px 10px 68px", border: `1.5px solid ${T.line}`, borderRadius: 9, fontSize: 13.5, fontFamily: "'DM Sans',sans-serif", color: T.ink, outline: "none" }}
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
+              <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 9, border: `1px solid ${T.line}`, background: "#f8fafc", color: T.ink, fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Cancel</button>
+              <button
+                onClick={() => { if (rate && parseFloat(rate) > 0) onSave(rate); }}
+                disabled={!rate || parseFloat(rate) <= 0}
+                style={{ padding: "9px 18px", borderRadius: 9, border: "none", background: `linear-gradient(135deg,${T.navy},${T.navyMid})`, color: "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 600, cursor: (!rate || parseFloat(rate) <= 0) ? "not-allowed" : "pointer", opacity: (!rate || parseFloat(rate) <= 0) ? 0.5 : 1 }}
+              >Apply Rate</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
 <div class="payslip-wrapper" style="position:relative;font-family:'DM Sans',Arial,sans-serif;background:#fff;overflow:hidden;border:1px solid ${T.line};max-width:794px;margin:0 auto;padding:44px 48px;box-sizing:border-box">
   <img src="${COMPANY.logo}" alt="" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:380px;height:380px;object-fit:contain;opacity:0.06;pointer-events:none;z-index:0" onerror="this.style.display='none'" />
   <div style="position:relative;z-index:1">
@@ -788,7 +867,7 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
   <!-- NET PAY BAND -->
   <div style="margin-top:18px;padding:16px 0;display:flex;align-items:center;justify-content:space-between;border-top:2px solid ${N};border-bottom:2px solid ${N}">
     <div style="font-size:13.5px;font-weight:700;color:${N};text-transform:uppercase;letter-spacing:.1em">Net Pay (Take Home)</div>
-    <div style="font-size:24px;font-weight:800;color:${N};letter-spacing:.01em">${fmtUSD(netPay)} ${currency}</div>
+    <div style="font-size:24px;font-weight:800;color:${N};letter-spacing:.01em">${fmtUSD(netPay)}</div>
   </div>
   ${lateDetailHTML}
   <!-- AUTHORISED BY -->
@@ -821,6 +900,24 @@ export default function HRPayslipsPage({ showToast }) {
   const [dataLoading,  setDataLoading]  = useState(true);
   const [payrollEdits, setPayrollEdits] = useState({});
   const [generating,   setGenerating]   = useState(false);
+  const [currency, setCurrency] = useState("USD");
+  const [zigRate,  setZigRate]  = useState(() => getZigRateForMonth(now.getFullYear(), now.getMonth()) || "");
+  const [showZigModal, setShowZigModal] = useState(false);
+
+  // Whenever the viewed payroll month changes, recall whatever ZiG rate
+  // (if any) was previously set for that specific month.
+  useEffect(() => {
+    setZigRate(getZigRateForMonth(viewYear, viewMonth) || "");
+  }, [viewYear, viewMonth]);
+
+  const handleCurrencyChange = (val) => {
+    if (val === "ZIG") {
+      const existing = getZigRateForMonth(viewYear, viewMonth);
+      if (existing) setZigRate(existing);
+      else setShowZigModal(true);
+    }
+    setCurrency(val);
+  };
 
   const monthStart = `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-01`;
   const lastDay    = new Date(viewYear, viewMonth+1, 0).getDate();
@@ -926,8 +1023,10 @@ export default function HRPayslipsPage({ showToast }) {
       attAll,
       payrollRecord: payrollMap[emp.id],
       edits: payrollEdits[emp.id] || {},
+      currency,
+      zigRate,
     });
-  }, [payrollMap, payrollEdits, attAll, viewYear, viewMonth]);
+  }, [payrollMap, payrollEdits, attAll, viewYear, viewMonth, currency, zigRate]);
 
   const handleDownloadOne = useCallback((emp) => {
     setGenerating(true);
@@ -1005,6 +1104,36 @@ export default function HRPayslipsPage({ showToast }) {
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
+            </div>
+
+            {/* Currency toggle */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: "#fff", border: `1.5px solid ${T.line}`, borderRadius: 10 }}>
+              <div style={{ display: "flex", borderRadius: 7, overflow: "hidden", border: `1px solid ${T.line}` }}>
+                {["USD", "ZIG"].map(curr => (
+                  <button key={curr} onClick={() => handleCurrencyChange(curr)}
+                    style={{
+                      padding: "5px 12px", border: "none", cursor: "pointer",
+                      fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif",
+                      background: currency === curr ? `linear-gradient(135deg,${T.navy},${T.navyMid})` : "#fafbff",
+                      color: currency === curr ? "#fff" : T.muted,
+                    }}>
+                    {curr}
+                  </button>
+                ))}
+              </div>
+              {currency === "ZIG" && (
+                <button onClick={() => setShowZigModal(true)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "5px 10px", borderRadius: 7,
+                    border: `1.5px solid ${zigRate ? T.navyMid : "#f59e0b"}`,
+                    background: zigRate ? "#eff6ff" : "#fff7ed",
+                    color: zigRate ? T.navyMid : "#92400e",
+                    fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+                  }}>
+                  {zigRate ? `1 USD = ${parseFloat(zigRate).toFixed(2)} ZiG` : "Set Rate"}
+                </button>
+              )}
             </div>
 
             {/* Search */}
@@ -1137,11 +1266,30 @@ export default function HRPayslipsPage({ showToast }) {
                 attendanceRecs={empAttRecs}
                 payrollRecord={payRec}
                 edits={edits}
+                currency={currency}
+                zigRate={zigRate}
               />
             </div>
           );
         })}
       </div>
+
+      {/* ── ZiG rate modal ── */}
+      {showZigModal && (
+        <ZigRateModal
+          currentRate={zigRate}
+          onClose={() => {
+            setShowZigModal(false);
+            if (!zigRate) setCurrency("USD");
+          }}
+          onSave={rate => {
+            setZigRate(rate);
+            saveZigRateForMonth(viewYear, viewMonth, rate);
+            setCurrency("ZIG");
+            setShowZigModal(false);
+          }}
+        />
+      )}
 
       {/* ── Generating overlay ── */}
       {generating && (

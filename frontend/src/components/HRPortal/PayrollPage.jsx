@@ -106,31 +106,37 @@ async function savePayrollAdjustment(empId, year, month, data) {
   } catch (err) { console.error("Failed to save payroll adjustment:", err); }
 }
 
-// ── ZiG exchange rate: valid for the whole calendar MONTH it was set,
-// then expires — so it only needs to be entered once each month, not daily.
-const ZIG_RATE_STORAGE_KEY = "hr_payroll_zig_rate";
+// ── ZiG exchange rate: kept per PAYROLL MONTH (whichever month you're
+// actually viewing), never expires — so once a rate is set for a given
+// month, switching currency on that same month again reuses it without
+// re-prompting, and navigating to a different month recalls whatever rate
+// (if any) was set for that month, rather than always the current real date.
+const ZIG_RATES_STORAGE_KEY = "hr_payroll_zig_rates";
 
-function getCurrentMonthKey() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+function monthKey(year, month) {
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
 }
 
-// Returns the saved rate as a string if it was set this calendar month,
-// otherwise clears the stale entry and returns null (so the user gets
-// prompted for a fresh one at the start of the next month).
-function loadThisMonthsZigRate() {
+function loadAllZigRates() {
   try {
-    const stored = localStorage.getItem(ZIG_RATE_STORAGE_KEY);
-    if (!stored) return null;
-    const parsed = JSON.parse(stored);
-    if (parsed && parsed.rate && parsed.month === getCurrentMonthKey()) {
-      return parsed.rate;
-    }
-    localStorage.removeItem(ZIG_RATE_STORAGE_KEY);
-    return null;
+    const stored = localStorage.getItem(ZIG_RATES_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : {};
   } catch {
-    return null;
+    return {};
   }
+}
+
+function getZigRateForMonth(year, month) {
+  const rates = loadAllZigRates();
+  return rates[monthKey(year, month)] || null;
+}
+
+function saveZigRateForMonth(year, month, rate) {
+  try {
+    const rates = loadAllZigRates();
+    rates[monthKey(year, month)] = rate;
+    localStorage.setItem(ZIG_RATES_STORAGE_KEY, JSON.stringify(rates));
+  } catch {}
 }
 
 function saveThisMonthsZigRate(rate) {
@@ -858,14 +864,25 @@ export default function HRPayrollPage({ showToast }) {
   };
   const isAtLatest = viewYear === now.getFullYear() && viewMonth === now.getMonth();
 
+  // Whenever the viewed payroll month changes, recall whatever ZiG rate
+  // (if any) was previously set for that specific month.
+  useEffect(() => {
+    setZigRate(getZigRateForMonth(viewYear, viewMonth) || "");
+  }, [viewYear, viewMonth]);
+
   // ── Currency state ────────────────────────────────────────────────────────
   const [currency, setCurrency] = useState("USD");
-  const [zigRate,  setZigRate]  = useState(() => loadThisMonthsZigRate() || "");
+  const [zigRate,  setZigRate]  = useState(() => getZigRateForMonth(now.getFullYear(), now.getMonth()) || "");
   const [showZigModal, setShowZigModal] = useState(false);
 
   const handleCurrencyChange = (val) => {
-    if (val === "ZIG" && !zigRate) {
-      setShowZigModal(true);
+    if (val === "ZIG") {
+      const existing = getZigRateForMonth(viewYear, viewMonth);
+      if (existing) {
+        setZigRate(existing); // already set for this month — reuse it, no prompt
+      } else {
+        setShowZigModal(true);
+      }
     }
     setCurrency(val);
   };
@@ -1768,7 +1785,7 @@ export default function HRPayrollPage({ showToast }) {
           }}
           onSave={rate => {
             setZigRate(rate);
-            saveThisMonthsZigRate(rate);
+            saveZigRateForMonth(viewYear, viewMonth, rate);
             setCurrency("ZIG");
             setShowZigModal(false);
           }}
