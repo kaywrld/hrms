@@ -722,41 +722,6 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
 
   return `
 
-  function ZigRateModal({ currentRate, onClose, onSave }) {
-    const [rate, setRate] = useState(currentRate || "");
-    return (
-      <div style={{ position: "fixed", inset: 0, background: "rgba(10,26,80,0.52)", zIndex: 9998, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-        onClick={e => e.target === e.currentTarget && onClose()}>
-        <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 380, boxShadow: "0 28px 72px rgba(0,0,0,0.18)", overflow: "hidden" }}>
-          <div style={{ background: `linear-gradient(135deg,${T.navy},${T.navyMid})`, padding: "16px 20px" }}>
-            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 15, fontWeight: 700, color: "#fff" }}>Set ZiG Exchange Rate</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", marginTop: 2 }}>1 USD = ? ZiG — for this month's payslips</div>
-          </div>
-          <div style={{ padding: 20 }}>
-            <div style={{ position: "relative" }}>
-              <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 12, fontWeight: 700, color: T.navyMid, pointerEvents: "none" }}>1 USD =</span>
-              <input
-                type="number" min="0" step="0.01" value={rate} autoFocus
-                onChange={e => setRate(e.target.value)}
-                placeholder="e.g. 30.23"
-                onKeyDown={e => { if (e.key === "Enter" && rate && parseFloat(rate) > 0) onSave(rate); }}
-                style={{ width: "100%", boxSizing: "border-box", padding: "10px 13px 10px 68px", border: `1.5px solid ${T.line}`, borderRadius: 9, fontSize: 13.5, fontFamily: "'DM Sans',sans-serif", color: T.ink, outline: "none" }}
-              />
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
-              <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 9, border: `1px solid ${T.line}`, background: "#f8fafc", color: T.ink, fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Cancel</button>
-              <button
-                onClick={() => { if (rate && parseFloat(rate) > 0) onSave(rate); }}
-                disabled={!rate || parseFloat(rate) <= 0}
-                style={{ padding: "9px 18px", borderRadius: 9, border: "none", background: `linear-gradient(135deg,${T.navy},${T.navyMid})`, color: "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 600, cursor: (!rate || parseFloat(rate) <= 0) ? "not-allowed" : "pointer", opacity: (!rate || parseFloat(rate) <= 0) ? 0.5 : 1 }}
-              >Apply Rate</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
 <div class="payslip-wrapper" style="position:relative;font-family:'DM Sans',Arial,sans-serif;background:#fff;overflow:hidden;border:1px solid ${T.line};max-width:794px;margin:0 auto;padding:44px 48px;box-sizing:border-box">
   <img src="${COMPANY.logo}" alt="" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:380px;height:380px;object-fit:contain;opacity:0.06;pointer-events:none;z-index:0" onerror="this.style.display='none'" />
   <div style="position:relative;z-index:1">
@@ -883,6 +848,44 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
   </div>
   </div>
 </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ZigRateModal — prompts for the USD → ZiG exchange rate for a given month
+// ─────────────────────────────────────────────────────────────────────────────
+function ZigRateModal({ currentRate, onClose, onSave }) {
+  const [rate, setRate] = useState(currentRate || "");
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,26,80,0.52)", zIndex: 9998, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 380, boxShadow: "0 28px 72px rgba(0,0,0,0.18)", overflow: "hidden" }}>
+        <div style={{ background: `linear-gradient(135deg,${T.navy},${T.navyMid})`, padding: "16px 20px" }}>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 15, fontWeight: 700, color: "#fff" }}>Set ZiG Exchange Rate</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", marginTop: 2 }}>1 USD = ? ZiG — for this month's payslips</div>
+        </div>
+        <div style={{ padding: 20 }}>
+          <div style={{ position: "relative" }}>
+            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 12, fontWeight: 700, color: T.navyMid, pointerEvents: "none" }}>1 USD =</span>
+            <input
+              type="number" min="0" step="0.01" value={rate} autoFocus
+              onChange={e => setRate(e.target.value)}
+              placeholder="e.g. 30.23"
+              onKeyDown={e => { if (e.key === "Enter" && rate && parseFloat(rate) > 0) onSave(rate); }}
+              style={{ width: "100%", boxSizing: "border-box", padding: "10px 13px 10px 68px", border: `1.5px solid ${T.line}`, borderRadius: 9, fontSize: 13.5, fontFamily: "'DM Sans',sans-serif", color: T.ink, outline: "none" }}
+            />
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
+            <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 9, border: `1px solid ${T.line}`, background: "#f8fafc", color: T.ink, fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Cancel</button>
+            <button
+              onClick={() => { if (rate && parseFloat(rate) > 0) onSave(rate); }}
+              disabled={!rate || parseFloat(rate) <= 0}
+              style={{ padding: "9px 18px", borderRadius: 9, border: "none", background: `linear-gradient(135deg,${T.navy},${T.navyMid})`, color: "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 600, cursor: (!rate || parseFloat(rate) <= 0) ? "not-allowed" : "pointer", opacity: (!rate || parseFloat(rate) <= 0) ? 0.5 : 1 }}
+            >Apply Rate</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
