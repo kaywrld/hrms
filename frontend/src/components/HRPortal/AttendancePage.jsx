@@ -1193,6 +1193,14 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
 
     setSaving(false);
     setSaveProgress(null);
+    // AttendancePage's own `existing` state (updated above from each POST's
+    // response) is a separate copy from HRPortalContext's `attendance`
+    // state, which is fetched once on load and feeds the dashboard's
+    // "Present Today" stats. Without this, a successful save here never
+    // reaches that other copy, so the dashboard keeps showing stale
+    // numbers until a full reload. Only worth doing if something actually
+    // changed.
+    if (succeeded > 0) refetchAttendance?.();
     showToast?.(failed === 0
       ? `Marked ${succeeded} attendance record${succeeded === 1 ? "" : "s"} as Present.`
       : `Saved ${succeeded}, ${failed} failed — they may already be marked.`,
@@ -1526,7 +1534,7 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AttendancePage({ showToast }) {
-  const { employees: ctxEmployees, departments, sites } = useHRPortal();
+  const { employees: ctxEmployees, departments, sites, refetchAttendance } = useHRPortal();
 
   const todayStr = toYMD(new Date());
   const [selectedDate, setSelectedDate] = useState(todayStr);
