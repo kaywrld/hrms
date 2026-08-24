@@ -1123,36 +1123,86 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
     });
     setSaveProgress({ done: 0, total: items.length });
 
+    // Keys that actually saved OK — these get cleared from `marks` and
+    // written straight into `existing` from the server's own response,
+    // so the grid updates instantly and doesn't depend on a second
+    // round-trip succeeding.
+    const savedKeys = [];
+    const savedRecords = []; // { empId, date, status, id }
     let succeeded = 0, failed = 0;
     const batchSize = 6;
     for (let i = 0; i < items.length; i += batchSize) {
       const batch = items.slice(i, i + batchSize);
-      const results = await Promise.all(batch.map(({ empId, date }) => {
+      const results = await Promise.all(batch.map(async ({ empId, date }) => {
         const work_location = siteDraft[empId] || "";
-        return apiFetch(`${API}/attendance/`, {
-          method: "POST",
-          body: JSON.stringify({ employee: Number(empId), date, status: "present", shift: null, notes: "", work_location }),
-        }).then(r => r.ok).catch(() => false);
+        try {
+          const res = await apiFetch(`${API}/attendance/`, {
+            method: "POST",
+            body: JSON.stringify({ employee: Number(empId), date, status: "present", shift: null, notes: "", work_location }),
+          });
+          if (!res.ok) return { ok: false, empId, date };
+          const saved = await res.json().catch(() => null);
+          return { ok: true, empId, date, saved };
+        } catch (_) {
+          return { ok: false, empId, date };
+        }
       }));
-      results.forEach(ok => ok ? succeeded++ : failed++);
+      results.forEach(r => {
+        if (r.ok) {
+          succeeded++;
+          savedKeys.push(cellKey(r.empId, Number(r.date.slice(-2))));
+          savedRecords.push({
+            empId: r.empId,
+            date: r.date,
+            status: r.saved?.status || "present",
+            id: r.saved?.id,
+          });
+        } else {
+          failed++;
+        }
+      });
       setSaveProgress({ done: Math.min(i + batchSize, items.length), total: items.length });
     }
 
-    // Refresh existing records so saved cells become read-only badges
+    // Apply the confirmed saves immediately — this is the source of truth
+    // for what the grid shows, independent of any later refresh.
+    if (savedRecords.length) {
+      setExisting(prev => {
+        const next = { ...prev };
+        savedRecords.forEach(({ empId, date, status, id }) => {
+          next[empId] = { ...(next[empId] || {}), [date]: { status, id } };
+        });
+        return next;
+      });
+    }
+
+    // Only clear the marks that actually saved — anything that failed stays
+    // selected so it's obvious it still needs saving, instead of silently
+    // reverting to "unmarked" looking.
+    setMarks(prev => {
+      const next = new Set(prev);
+      savedKeys.forEach(k => next.delete(k));
+      return next;
+    });
+
+    // Best-effort background reconciliation (picks up anything marked
+    // elsewhere in the meantime). Never lets a failed/slow response erase
+    // what we already know succeeded above.
     try {
       const res = await apiFetch(`${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&page_size=8000`);
-      const data = res.ok ? await res.json() : [];
-      const list = Array.isArray(data) ? data : data.results || [];
-      const map = {};
-      list.forEach(r => {
-        const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
-        if (!map[empId]) map[empId] = {};
-        map[empId][r.date] = { status: r.status, id: r.id };
-      });
-      setExisting(map);
-    } catch (_) { /* non-fatal */ }
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : data.results || [];
+        const map = {};
+        list.forEach(r => {
+          const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
+          if (!map[empId]) map[empId] = {};
+          map[empId][r.date] = { status: r.status, id: r.id };
+        });
+        setExisting(map);
+      }
+    } catch (_) { /* non-fatal — optimistic update above already stands */ }
 
-    setMarks(new Set());
     setSaving(false);
     setSaveProgress(null);
     showToast?.(failed === 0
