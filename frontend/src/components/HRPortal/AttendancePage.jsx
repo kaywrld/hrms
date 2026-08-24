@@ -887,6 +887,7 @@ function getZwPublicHolidays(year, month) {
 // unmarked days are selectable, since there's no delete/undo endpoint to
 // safely overwrite a status a HOD may have set for a reason.
 function RegisterMarkingView({ employees, departments, sites, onBack, showToast }) {
+  const { refetchAttendance } = useHRPortal();
   const todayObj = new Date();
   const todayStr = toYMD(todayObj);
   const [year,  setYear]  = useState(todayObj.getFullYear());
@@ -1534,7 +1535,7 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AttendancePage({ showToast }) {
-  const { employees: ctxEmployees, departments, sites, refetchAttendance } = useHRPortal();
+  const { employees: ctxEmployees, departments, sites } = useHRPortal();
 
   const todayStr = toYMD(new Date());
   const [selectedDate, setSelectedDate] = useState(todayStr);
