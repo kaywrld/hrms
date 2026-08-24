@@ -887,7 +887,6 @@ function getZwPublicHolidays(year, month) {
 // unmarked days are selectable, since there's no delete/undo endpoint to
 // safely overwrite a status a HOD may have set for a reason.
 function RegisterMarkingView({ employees, departments, sites, onBack, showToast }) {
-  const { refetchAttendance } = useHRPortal();
   const todayObj = new Date();
   const todayStr = toYMD(todayObj);
   const [year,  setYear]  = useState(todayObj.getFullYear());
@@ -1194,14 +1193,6 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
 
     setSaving(false);
     setSaveProgress(null);
-    // AttendancePage's own `existing` state (updated above from each POST's
-    // response) is a separate copy from HRPortalContext's `attendance`
-    // state, which is fetched once on load and feeds the dashboard's
-    // "Present Today" stats. Without this, a successful save here never
-    // reaches that other copy, so the dashboard keeps showing stale
-    // numbers until a full reload. Only worth doing if something actually
-    // changed.
-    if (succeeded > 0) refetchAttendance?.();
     showToast?.(failed === 0
       ? `Marked ${succeeded} attendance record${succeeded === 1 ? "" : "s"} as Present.`
       : `Saved ${succeeded}, ${failed} failed — they may already be marked.`,
