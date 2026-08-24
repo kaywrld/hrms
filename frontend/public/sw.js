@@ -5,6 +5,14 @@ const STATIC_ASSETS = [
 ];
 const APP_SHELL_KEY = '/'; // one consistent cache key for "the current HTML shell"
 
+// SPA route prefixes that should always be treated as navigations, even
+// when the request was issued via fetch()/router prefetch rather than an
+// actual browser navigation (request.mode !== 'navigate' in that case).
+// Without this, a request like /portal/hrm?page=attendance falls through
+// to the generic Cache-First bucket below, has no cache entry, and any
+// network hiccup surfaces as a bare 504 instead of the offline fallback.
+const APP_ROUTE_PREFIXES = ['/portal/'];
+
 // Races a fetch against a timeout so a hung/slow connection fails fast
 // into the offline/cache fallback instead of leaving the UI stuck waiting.
 const withTimeout = (promise, ms = 8000) =>
@@ -79,7 +87,16 @@ self.addEventListener('fetch', event => {
   // of which SPA route was actually requested) — that's what's offered
   // offline, so it's always the most recently seen version, never a
   // permanently stale one.
-  const isNavigation = request.mode === 'navigate' || url.pathname === '/index.html';
+  //
+  // Also treat known SPA route prefixes as navigations even when
+  // request.mode isn't 'navigate' (e.g. a fetch()-driven route
+  // reload/prefetch from within the app) — see APP_ROUTE_PREFIXES above.
+  const isNavigation =
+    request.mode === 'navigate' ||
+    url.pathname === '/index.html' ||
+    (url.origin === self.location.origin &&
+      APP_ROUTE_PREFIXES.some(prefix => url.pathname.startsWith(prefix)));
+
   if (isNavigation) {
     event.respondWith(
       withTimeout(fetch(request))
