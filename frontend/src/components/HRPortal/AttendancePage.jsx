@@ -1123,12 +1123,11 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
     });
     setSaveProgress({ done: 0, total: items.length });
 
-    // Keys that actually saved OK — these get cleared from `marks` and
-    // written straight into `existing` from the server's own response,
-    // so the grid updates instantly and doesn't depend on a second
-    // round-trip succeeding.
-    const savedKeys = [];
-    const savedRecords = []; // { empId, date, status, id }
+    // Update `existing` (and clear `marks`) straight from each POST's own
+    // response as it lands — this is the source of truth for what actually
+    // got saved. It does NOT depend on a follow-up GET succeeding, which
+    // matters because a slow/timed-out GET on shared hosting can otherwise
+    // make a fully-successful save look like it silently failed on screen.
     let succeeded = 0, failed = 0;
     const batchSize = 6;
     for (let i = 0; i < items.length; i += batchSize) {
@@ -1147,47 +1146,34 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
           return { ok: false, empId, date };
         }
       }));
-      results.forEach(r => {
-        if (r.ok) {
-          succeeded++;
-          savedKeys.push(cellKey(r.empId, Number(r.date.slice(-2))));
-          savedRecords.push({
-            empId: r.empId,
-            date: r.date,
-            status: r.saved?.status || "present",
-            id: r.saved?.id,
+
+      const okResults = results.filter(r => r.ok);
+      if (okResults.length) {
+        setExisting(prev => {
+          const next = { ...prev };
+          okResults.forEach(({ empId, date, saved }) => {
+            next[empId] = {
+              ...(next[empId] || {}),
+              [date]: { status: saved?.status || "present", id: saved?.id },
+            };
           });
-        } else {
-          failed++;
-        }
-      });
+          return next;
+        });
+        setMarks(prev => {
+          const next = new Set(prev);
+          okResults.forEach(({ empId, date }) => next.delete(cellKey(empId, Number(date.slice(-2)))));
+          return next;
+        });
+      }
+      results.forEach(r => r.ok ? succeeded++ : failed++);
       setSaveProgress({ done: Math.min(i + batchSize, items.length), total: items.length });
     }
 
-    // Apply the confirmed saves immediately — this is the source of truth
-    // for what the grid shows, independent of any later refresh.
-    if (savedRecords.length) {
-      setExisting(prev => {
-        const next = { ...prev };
-        savedRecords.forEach(({ empId, date, status, id }) => {
-          next[empId] = { ...(next[empId] || {}), [date]: { status, id } };
-        });
-        return next;
-      });
-    }
-
-    // Only clear the marks that actually saved — anything that failed stays
-    // selected so it's obvious it still needs saving, instead of silently
-    // reverting to "unmarked" looking.
-    setMarks(prev => {
-      const next = new Set(prev);
-      savedKeys.forEach(k => next.delete(k));
-      return next;
-    });
-
-    // Best-effort background reconciliation (picks up anything marked
-    // elsewhere in the meantime). Never lets a failed/slow response erase
-    // what we already know succeeded above.
+    // Best-effort background reconciliation only — picks up anything marked
+    // elsewhere in the meantime. Never allowed to erase the optimistic
+    // updates above: if this GET times out and the service worker hands
+    // back a stale/older snapshot, that stale snapshot is discarded here
+    // rather than overwriting what we already confirmed was saved.
     try {
       const res = await apiFetch(`${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&page_size=8000`);
       if (res.ok) {
@@ -1199,9 +1185,11 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
           if (!map[empId]) map[empId] = {};
           map[empId][r.date] = { status: r.status, id: r.id };
         });
-        setExisting(map);
+        setExisting(prev => ({ ...map, ...Object.fromEntries(
+          Object.entries(prev).map(([empId, recs]) => [empId, { ...(map[empId] || {}), ...recs }])
+        ) }));
       }
-    } catch (_) { /* non-fatal — optimistic update above already stands */ }
+    } catch (_) { /* non-fatal — optimistic updates above already stand */ }
 
     setSaving(false);
     setSaveProgress(null);

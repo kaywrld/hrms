@@ -75,6 +75,16 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET') return;
   if (url.protocol === 'chrome-extension:') return;
 
+  // Endpoints where a stale cached response is actively dangerous to show
+  // as if it were current — attendance is edited constantly by HODs/HRM and
+  // the whole point of the register/history views is "is this marked right
+  // now". Silently handing back a pre-edit snapshot with a 200 status here
+  // makes a successful save look like it didn't happen. These get network
+  // only: no cache read fallback, so a timeout surfaces as a real failure
+  // the UI can retry, instead of quietly-wrong data.
+  const NO_STALE_FALLBACK_PREFIXES = ['/api/attendance'];
+  const noStaleFallback = NO_STALE_FALLBACK_PREFIXES.some(p => url.pathname.startsWith(p));
+
   // API calls → Network First, with a timeout so slow connections fail
   // fast. On failure, fall back to cache but mark the response as stale
   // via a header so the frontend can tell it's not fresh data instead of
@@ -90,6 +100,12 @@ self.addEventListener('fetch', event => {
           return response;
         })
         .catch(async () => {
+          if (noStaleFallback) {
+            return new Response(JSON.stringify({ error: 'timeout', stale_blocked: true }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
           const cached = await caches.match(request);
           if (cached) {
             const headers = new Headers(cached.headers);
