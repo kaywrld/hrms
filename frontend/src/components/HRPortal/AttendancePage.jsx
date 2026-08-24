@@ -1499,6 +1499,10 @@ export default function AttendancePage({ showToast }) {
 
   const [attendance, setAttendance] = useState([]);
   const [attLoading, setAttLoading] = useState(true);
+  // Bumped whenever we return from the Mark Register view (or otherwise
+  // need to force a re-fetch of the daily table without selectedDate
+  // itself changing).
+  const [refreshTick, setRefreshTick] = useState(0);
 
   // Clicking a row replaces the table with the detail view
   const [selectedEmp, setSelectedEmp] = useState(null);
@@ -1548,7 +1552,7 @@ export default function AttendancePage({ showToast }) {
       .catch(() => {})
       .finally(() => { if (!cancelled) setAttLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedDate]);
+  }, [selectedDate, refreshTick]);
 
   const attMap = useMemo(() => {
     const m = {};
@@ -1687,7 +1691,7 @@ export default function AttendancePage({ showToast }) {
             employees={ctxEmployees}
             departments={departments}
             sites={sites}
-            onBack={() => setMarkingMode(false)}
+            onBack={() => { setMarkingMode(false); setRefreshTick(t => t + 1); }}
             showToast={showToast}
           />
         </div>
