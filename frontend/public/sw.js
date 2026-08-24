@@ -1,9 +1,17 @@
-const CACHE_NAME    = 'jecca-hrms-v2';
+const CACHE_NAME    = 'jecca-hrms-v3';
 const STATIC_ASSETS = [
   '/bg.jpeg',
   '/logo.jpeg',
 ];
 const APP_SHELL_KEY = '/'; // one consistent cache key for "the current HTML shell"
+
+// Races a fetch against a timeout so a hung/slow connection fails fast
+// into the offline/cache fallback instead of leaving the UI stuck waiting.
+const withTimeout = (promise, ms = 8000) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -38,28 +46,43 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET') return;
   if (url.protocol === 'chrome-extension:') return;
 
-  // API calls → Network First, fallback to cache.
+  // API calls → Network First, with a timeout so slow connections fail
+  // fast. On failure, fall back to cache but mark the response as stale
+  // via a header so the frontend can tell it's not fresh data instead of
+  // silently trusting it.
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
-      fetch(request)
+      withTimeout(fetch(request))
         .then(response => {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(async () => {
+          const cached = await caches.match(request);
+          if (cached) {
+            const headers = new Headers(cached.headers);
+            headers.set('X-Served-By', 'sw-stale-cache');
+            return new Response(cached.body, { status: cached.status, headers });
+          }
+          return new Response(JSON.stringify({ error: 'offline' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        })
     );
     return;
   }
 
-  // Page navigations → Network First. Every successful load overwrites a
-  // single "app shell" cache entry (keyed as '/', regardless of which SPA
-  // route was actually requested) — that's what's offered offline, so it's
-  // always the most recently seen version, never a permanently stale one.
+  // Page navigations → Network First (with timeout). Every successful load
+  // overwrites a single "app shell" cache entry (keyed as '/', regardless
+  // of which SPA route was actually requested) — that's what's offered
+  // offline, so it's always the most recently seen version, never a
+  // permanently stale one.
   const isNavigation = request.mode === 'navigate' || url.pathname === '/index.html';
   if (isNavigation) {
     event.respondWith(
-      fetch(request)
+      withTimeout(fetch(request))
         .then(response => {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(APP_SHELL_KEY, clone));
