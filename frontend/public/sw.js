@@ -13,9 +13,30 @@ const APP_SHELL_KEY = '/'; // one consistent cache key for "the current HTML she
 // network hiccup surfaces as a bare 504 instead of the offline fallback.
 const APP_ROUTE_PREFIXES = ['/portal/'];
 
+// Default timeout for /api/ calls.
+const DEFAULT_API_TIMEOUT_MS = 8000;
+
+// Heavier report-style queries (large page_size, wide date ranges, exports)
+// legitimately take longer on shared hosting than a normal list call.
+// These get a longer timeout instead of racing the same 8s clock and
+// getting killed mid-flight, which was surfacing as a fake 503 even when
+// the request would have succeeded a few seconds later.
+const LONG_API_TIMEOUT_MS = 30000;
+
+function getApiTimeout(url) {
+  const pageSize = Number(url.searchParams.get('page_size') || 0);
+  const isWideDateRange = url.searchParams.has('date_after') && url.searchParams.has('date_before');
+  const isExport = url.pathname.endsWith('/export/') || url.searchParams.has('export');
+
+  if (pageSize >= 1000 || isWideDateRange || isExport) {
+    return LONG_API_TIMEOUT_MS;
+  }
+  return DEFAULT_API_TIMEOUT_MS;
+}
+
 // Races a fetch against a timeout so a hung/slow connection fails fast
 // into the offline/cache fallback instead of leaving the UI stuck waiting.
-const withTimeout = (promise, ms = 8000) =>
+const withTimeout = (promise, ms = DEFAULT_API_TIMEOUT_MS) =>
   Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
@@ -57,10 +78,12 @@ self.addEventListener('fetch', event => {
   // API calls → Network First, with a timeout so slow connections fail
   // fast. On failure, fall back to cache but mark the response as stale
   // via a header so the frontend can tell it's not fresh data instead of
-  // silently trusting it.
+  // silently trusting it. Heavy report-style queries get a longer timeout
+  // (see getApiTimeout) instead of sharing the default 8s clock.
   if (url.pathname.startsWith('/api/')) {
+    const timeoutMs = getApiTimeout(url);
     event.respondWith(
-      withTimeout(fetch(request))
+      withTimeout(fetch(request), timeoutMs)
         .then(response => {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
