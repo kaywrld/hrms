@@ -20,6 +20,25 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('marked_by', 'created_at')
 
+    def get_unique_together_validators(self):
+        # Disable DRF's auto UniqueTogetherValidator for (employee, date) —
+        # we handle the upsert ourselves in create() below instead of
+        # rejecting the request with a 400.
+        return []
+
+    def create(self, validated_data):
+        employee = validated_data.pop('employee')
+        date = validated_data.pop('date')
+        # update_or_create is atomic at the DB level (single UPDATE or
+        # INSERT), so this is safe even if two requests race for the same
+        # employee/date — no window for a duplicate-key error to surface.
+        obj, _ = AttendanceRecord.objects.update_or_create(
+            employee=employee,
+            date=date,
+            defaults=validated_data,
+        )
+        return obj
+
     def get_employee_name(self, obj):
         return f"{obj.employee.first_name} {obj.employee.last_name}"
 
