@@ -62,14 +62,14 @@ export const apiFetch = async (url, options = {}) => {
     ...(options.headers || {}),
   };
 
-  let res = await fetch(url, { ...options, headers });
+  let res = await fetch(url, { cache: "no-store", ...options, headers });
 
   // Token expired — try refresh once
   if (res.status === 401) {
     const newToken = await refreshToken();
     if (!newToken) return res;
     const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
-    res = await fetch(url, { ...options, headers: retryHeaders });
+    res = await fetch(url, { cache: "no-store", ...options, headers: retryHeaders });
   }
 
   // Still 401 after refresh → kick to login

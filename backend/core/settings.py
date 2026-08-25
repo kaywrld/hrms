@@ -58,6 +58,7 @@ MIDDLEWARE = [
     'core.middleware.RemoveServerHeadersMiddleware',
     'core.middleware.MethodOverrideMiddleware',   # ← new: lets PATCH/PUT/DELETE ride in as POST
     'corsheaders.middleware.CorsMiddleware',   # ← add at the top
+    'core.middleware.NoCacheAPIMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
