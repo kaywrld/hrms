@@ -15,6 +15,7 @@ import { apiFetch, getToken, refreshToken, notifyModalOpen, notifyModalClose } f
 import { useHRPortal } from "../../context/HRPortalContext";
 import EmployeeDetailView from "./EmployeeDetailView";
 import { ZW_BANKS } from "../../utils/banks";
+import * as XLSX from "xlsx";
 
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
@@ -1334,56 +1335,67 @@ function AttBar({ attended, total }) {
 }
 
 // ── Download helpers ──────────────────────────────────────────────────────────
-function downloadCSV(rows, filename) {
-  const headers = ["Full Name", "Job Title", "Department", "Days Attended", "Working Days", "Monthly Salary", "Daily Rate", "Amount To Be Paid"];
-  const lines = [headers.join(","), ...rows.map(r =>
-    [
-      `"${r.fullName}"`,
-      `"${r.jobTitle}"`,
-      `"${r.dept}"`,
-      r.daysAttended,
-      r.workingDays,
-      r.monthlySalary.toFixed(2),
-      r.dailyRate.toFixed(2),
-      r.amountToBePaid.toFixed(2),
-    ].join(",")
-  )];
-  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
+function downloadExcel(rows, filename) {
+  const headers = [
+    "Full Name", "Gender", "Date of Birth", "National ID",
+    "Address", "Email", "Phone", "Alt Phone",
+    "Next of Kin", "NOK Relationship", "NOK Phone",
+    "Department", "Job Title", "Employment Type", "Status", "Date Joined",
+  ];
+  const keys = [
+    "fullName", "gender", "dob", "nationalId",
+    "address", "email", "phone", "altPhone",
+    "nokName", "nokRelationship", "nokPhone",
+    "department", "jobTitle", "employmentType", "status", "dateJoined",
+  ];
+
+  const data = [headers, ...rows.map(r => keys.map(k => r[k] ?? ""))];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+
+  // Auto-width: size each column to its widest cell (capped so nothing runs away)
+  ws["!cols"] = headers.map((_, colIdx) => {
+    const maxLen = data.reduce((max, row) => {
+      const cell = row[colIdx] == null ? "" : String(row[colIdx]);
+      return Math.max(max, cell.length);
+    }, 0);
+    return { wch: Math.min(Math.max(maxLen + 2, 10), 40) };
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Employees");
+  XLSX.writeFile(wb, filename);
 }
 
-function downloadPDF(rows, monthLabel) {
+function downloadPDF(rows, title = "Employee Directory") {
   const html = `
-    <html><head><title>Employee Payroll Report</title>
+    <html><head><title>${title}</title>
     <style>
-      body { font-family: Arial, sans-serif; font-size: 12px; color: #0f172a; }
+      body { font-family: Arial, sans-serif; font-size: 11px; color: #0f172a; }
       h1 { font-size: 18px; color: #0a2a5e; margin-bottom: 4px; }
       .sub { color: #64748b; font-size: 11px; margin-bottom: 20px; }
       table { width: 100%; border-collapse: collapse; }
-      th { background: #0e3d82; color: #fff; padding: 8px 10px; text-align: left; font-size: 11px; }
-      td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; font-size: 11px; }
+      th { background: #0e3d82; color: #fff; padding: 6px 8px; text-align: left; font-size: 10px; }
+      td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; font-size: 10px; }
       tr:nth-child(even) td { background: #f8faff; }
-      .money { text-align: right; font-family: monospace; }
     </style></head>
     <body>
-      <h1>Employee Payroll Report</h1>
-      <div class="sub">Month: ${monthLabel} &nbsp;|&nbsp; Generated: ${new Date().toLocaleString("en-GB")}</div>
+      <h1>${title}</h1>
+      <div class="sub">Generated: ${new Date().toLocaleString("en-GB")}</div>
       <table>
         <thead><tr>
-          <th>Full Name</th><th>Job Title</th><th>Dept</th>
-          <th>Days Attended</th><th>Working Days</th>
-          <th class="money">Monthly Salary</th><th class="money">Daily Rate</th><th class="money">Amount To Pay</th>
+          <th>Full Name</th><th>Emp #</th><th>Gender</th><th>DOB</th><th>National ID</th>
+          <th>Phone</th><th>Email</th><th>Address</th>
+          <th>Next of Kin</th><th>NOK Phone</th>
+          <th>Department</th><th>Job Title</th><th>Type</th><th>Status</th><th>Joined</th>
         </tr></thead>
         <tbody>
           ${rows.map(r => `<tr>
-            <td>${r.fullName}</td><td>${r.jobTitle}</td><td>${r.dept}</td>
-            <td>${r.daysAttended}</td><td>${r.workingDays}</td>
-            <td class="money">$${r.monthlySalary.toFixed(2)}</td>
-            <td class="money">$${r.dailyRate.toFixed(2)}</td>
-            <td class="money"><strong>$${r.amountToBePaid.toFixed(2)}</strong></td>
+            <td>${r.fullName || ""}</td><td>${r.employeeNumber || ""}</td><td>${r.gender || ""}</td>
+            <td>${r.dob || ""}</td><td>${r.nationalId || ""}</td>
+            <td>${r.phone || ""}</td><td>${r.email || ""}</td><td>${r.address || ""}</td>
+            <td>${r.nokName || ""}</td><td>${r.nokPhone || ""}</td>
+            <td>${r.department || ""}</td><td>${r.jobTitle || ""}</td>
+            <td>${r.employmentType || ""}</td><td>${r.status || ""}</td><td>${r.dateJoined || ""}</td>
           </tr>`).join("")}
         </tbody>
       </table>
@@ -1828,6 +1840,7 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [siteExportBusy, setSiteExportBusy] = useState(false);
   const dlRef = useRef();
+  const [exportBusy, setExportBusy] = useState(false); // ← add this
 
   // ── Employee detail panel (same panel used by the HR Dashboard) ────────────
   const [selectedEmp,   setSelectedEmp]   = useState(null);
@@ -1916,6 +1929,42 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
   const departments = ctxDepartments || [];
   const sites       = ctxSites || [];
 
+  async function buildFullExportRows(filteredList) {
+    const details = [];
+    for (const e of filteredList) {
+      try {
+        const res = await apiFetch(`${API}/employees/${e.id}/`);
+        details.push(res.ok ? await res.json() : e);
+      } catch {
+        details.push(e);
+      }
+    }
+    return filteredList.map((e, i) => {
+      const full = details[i] || e;
+      const fullName = full.full_name || [full.first_name, full.middle_name, full.last_name].filter(Boolean).join(" ") || "—";
+      return {
+        fullName,
+        gender: genderLabel[full.gender] || full.gender || "",
+        dob: (full.date_of_birth || full.dob || full.birth_date)
+          ? new Date(full.date_of_birth || full.dob || full.birth_date).toLocaleDateString("en-GB")
+          : "",
+        nationalId: full.national_id || full.id_number || full.national_id_number || full.id_no || full.nin || "",
+        address: full.address || full.home_address || full.residential_address || full.physical_address || "",
+        email: full.email || full.email_address || "",
+        phone: full.phone_number || full.phone || "",
+        altPhone: full.alt_phone || full.alternative_phone || full.other_phone || full.phone2 || "",
+        nokName: full.nok_full_name || full.next_of_kin || full.emergency_contact_name || full.nok_name || "",
+        nokRelationship: full.nok_relationship || "",
+        nokPhone: full.nok_phone || full.next_of_kin_phone || full.emergency_contact_phone || "",
+        department: full.department_name || departments.find(d => d.id === full.department)?.name || "",
+        jobTitle: full.job_title || full.position || "",
+        employmentType: typeLabel[full.employment_type] || full.employment_type || "",
+        status: full.status || "",
+        dateJoined: full.date_joined ? new Date(full.date_joined).toLocaleDateString("en-GB") : "",
+      };
+    });
+  }
+
   const payrollMap = useMemo(() => {
     const m = {};
     payrolls.forEach(p => {
@@ -1950,22 +1999,6 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
     return m;
   }, [attendanceAll]);
 
-  // Days a monthly-salary employee was marked present on a WEEKEND or
-  // PUBLIC HOLIDAY — these don't count as normal working days on their own,
-  // but they offset normal working days that were missed, so someone who
-  // comes in on their day off isn't penalized for the missed weekday while
-  // also not being paid for the day they actually worked.
-  const extraDayCreditMap = useMemo(() => {
-    const m = {};
-    attendanceAll.forEach(rec => {
-      if (rec.status !== "present" && rec.status !== "late" && rec.status !== "half_day") return;
-      if (isWorkingDay(rec.date)) return; // only non-working days count as "extra"
-      const empId = typeof rec.employee === "object" ? rec.employee.id : rec.employee;
-      m[empId] = (m[empId] || 0) + (rec.status === "half_day" ? 0.5 : 1);
-    });
-    return m;
-  }, [attendanceAll]);
-
   const enriched = useMemo(() => {
     if (!employees) return [];
     return employees.map(emp => {
@@ -1973,22 +2006,12 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
       const isDaily    = pr.payType === "daily";
       const monthlySalary  = isDaily ? 0 : pr.basicSalary;
       const dailyRate      = isDaily ? pr.dailyRate : (workingDaysThisMonth > 0 ? pr.basicSalary / workingDaysThisMonth : 0);
-
-      // Monthly-salary employees: extra weekend/holiday attendance offsets
-      // missed normal working days — capped so it can never push attendance
-      // above 100% of the month's working days.
-      const normalDaysAttended  = attendanceMap[emp.id] || 0;
-      const extraDayCredit      = extraDayCreditMap[emp.id] || 0;
-      const missingDays         = Math.max(0, workingDaysThisMonth - normalDaysAttended);
-      const creditApplied       = Math.min(extraDayCredit, missingDays);
-      const monthlyDaysAttended = normalDaysAttended + creditApplied;
-
-      const daysAttended   = isDaily ? (attendanceAllDaysMap[emp.id] || 0) : monthlyDaysAttended;
+      const daysAttended   = isDaily ? (attendanceAllDaysMap[emp.id] || 0) : (attendanceMap[emp.id] || 0);
       const amountToBePaid = dailyRate * daysAttended;
       const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
-      return { ...emp, fullName, isDaily, monthlySalary, dailyRate, daysAttended, amountToBePaid, creditApplied: isDaily ? 0 : creditApplied };
+      return { ...emp, fullName, isDaily, monthlySalary, dailyRate, daysAttended, amountToBePaid };
     });
-  }, [employees, payrollMap, attendanceMap, attendanceAllDaysMap, extraDayCreditMap, workingDaysThisMonth]);
+  }, [employees, payrollMap, attendanceMap, attendanceAllDaysMap, workingDaysThisMonth]);
 
   const filtered = useMemo(() => {
     if (!enriched.length) return [];
@@ -2017,16 +2040,28 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
 
   const today = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
+  const typeLabel = { full_time: "Full-Time", part_time: "Part-Time", contract: "Contract" };
+  const genderLabel = { M: "Male", F: "Female", O: "Other" };
+  
   const tableRows = filtered.map(e => ({
-    fullName:      e.fullName,
-    jobTitle:      e.job_title || e.position || "—",
-    dept:          e.department_name || departments.find(d => d.id === e.department)?.name || "—",
-    isDaily:       e.isDaily,
-    daysAttended:  e.daysAttended,
-    workingDays:   e.isDaily ? daysInThisMonth : workingDaysThisMonth,
-    monthlySalary: e.monthlySalary,
-    dailyRate:     e.dailyRate,
-    amountToBePaid: e.amountToBePaid,
+    fullName: e.fullName,
+    gender:   genderLabel[e.gender] || e.gender || "",
+    dob: (e.date_of_birth || e.dob || e.birth_date)
+      ? new Date(e.date_of_birth || e.dob || e.birth_date).toLocaleDateString("en-GB")
+      : "",
+    nationalId: e.national_id || e.id_number || e.national_id_number || e.id_no || e.nin || "",
+    address: e.address || e.home_address || e.residential_address || e.physical_address || "",
+    email:   e.email || e.email_address || "",
+    phone:   e.phone_number || e.phone || "",
+    altPhone: e.alt_phone || e.alternative_phone || e.other_phone || e.phone2 || "",
+    nokName: e.nok_full_name || e.next_of_kin || e.emergency_contact_name || e.nok_name || "",
+    nokRelationship: e.nok_relationship || "",
+    nokPhone: e.nok_phone || e.next_of_kin_phone || e.emergency_contact_phone || "",
+    department: e.department_name || departments.find(d => d.id === e.department)?.name || "",
+    jobTitle: e.job_title || e.position || "",
+    employmentType: typeLabel[e.employment_type] || e.employment_type || "",
+    status: e.status || "",
+    dateJoined: e.date_joined ? new Date(e.date_joined).toLocaleDateString("en-GB") : "",
   }));
 
   const statusStyles = {
@@ -2136,8 +2171,26 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
                 }}>
                   {[
                     { label: siteExportBusy ? "Preparing…" : `Download by Site (Excel)${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}`, icon: "🗂️", action: () => { if (!siteExportBusy) { downloadBySite(); setDownloadOpen(false); } } },
-                    { label: `Download as Excel (CSV)${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}`, icon: "📊", action: () => { downloadCSV(tableRows, `employees${payTypeFilter !== "all" ? `-${payTypeFilter}` : ""}-${monthLabel.replace(/ /g, "-")}.csv`); setDownloadOpen(false); } },
-                    { label: `Download as PDF${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}`, icon: "📄", action: () => { downloadPDF(tableRows, monthLabel); setDownloadOpen(false); } },
+                    {
+                      label: exportBusy ? "Preparing…" : "Download as Excel",
+                      icon: "📊",
+                      action: async () => {
+                        if (exportBusy) return;
+                        setDownloadOpen(false);
+                        setExportBusy(true);
+                        try {
+                          const rows = await buildFullExportRows(filtered);
+                          downloadExcel(rows, `employee-directory-${monthLabel.replace(/ /g, "-")}.xlsx`);
+                        } finally {
+                          setExportBusy(false);
+                        }
+                      }
+                    },
+                    {
+                      label: `Download as PDF`,
+                      icon: "📄",
+                      action: () => { downloadPDF(tableRows, "Employee Directory"); setDownloadOpen(false); }
+                    },
                   ].map(item => (
                     <button key={item.label} onClick={item.action} style={{
                       display: "flex", alignItems: "center", gap: 10,
@@ -2384,11 +2437,6 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
                       </td>
                       <td className="emp-td" style={{ padding: "11px 14px", minWidth: 150 }}>
                         <AttBar attended={emp.daysAttended} total={emp.isDaily ? daysInThisMonth : workingDaysThisMonth} />
-                        {emp.creditApplied > 0 && (
-                          <div style={{ fontSize: 10, color: "#059669", fontFamily: "'DM Sans',sans-serif", marginTop: 2 }}>
-                            +{emp.creditApplied} weekend/holiday day{emp.creditApplied === 1 ? "" : "s"} covering absence
-                          </div>
-                        )}
                       </td>
                       <td className="emp-td" style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", fontSize: 12.5, color: emp.monthlySalary > 0 ? "#0f172a" : "#cbd5e1", whiteSpace: "nowrap" }}>
                         {emp.isDaily ? <span style={{ color: "#cbd5e1" }}>—</span> : (emp.monthlySalary > 0 ? fmt$(emp.monthlySalary) : <span style={{ color: "#cbd5e1" }}>Not set</span>)}
