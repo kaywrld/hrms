@@ -28,6 +28,7 @@ const ZW_PUBLIC_HOLIDAYS_RECURRING = [
   "05-25", // Africa Day
   "08-11", // Heroes' Day
   "08-12", // Defence Forces Day
+  "09-15", // Munhumutapa Day
   "12-22", // Unity Day
   "12-25", // Christmas Day
   "12-26", // Boxing Day

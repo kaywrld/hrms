@@ -52,7 +52,7 @@ const WORK_END_H   = 17;
 const FULL_HOURS   = WORK_END_H - WORK_START_H;
 
 // ── Zimbabwean public holidays ─────────────────────────────────────────────────
-const ZW_RECURRING = ["01-01","02-21","04-18","05-01","05-25","08-11","08-12","12-22","12-25","12-26"];
+const ZW_RECURRING = ["01-01","02-21","04-18","05-01","05-25","08-11","08-12", "09-15", "12-22","12-25","12-26"];
 function getZwHolidays(year, month) {
   const h = new Set();
   ZW_RECURRING.forEach(mmdd => {

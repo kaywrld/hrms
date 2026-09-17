@@ -31,7 +31,7 @@ const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 // ── Zimbabwe Public Holidays (same logic as EmployeesPage) ────────────────────
 const ZW_PUBLIC_HOLIDAYS_RECURRING = [
   "01-01", "02-21", "04-18", "05-01", "05-25",
-  "08-11", "08-12", "12-22", "12-25", "12-26",
+  "08-11", "08-12", "09-15", "12-22", "12-25", "12-26",
 ];
 
 function getZwPublicHolidays(year, month) {

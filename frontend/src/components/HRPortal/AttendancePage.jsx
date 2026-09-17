@@ -846,7 +846,7 @@ async function buildAndDownloadMonthlyRegister({ employees, records, year, month
 // working-day count here always matches what Payroll shows) ────────────────
 const ZW_PUBLIC_HOLIDAYS_RECURRING = [
   "01-01", "02-21", "04-18", "05-01", "05-25",
-  "08-11", "08-12", "12-22", "12-25", "12-26",
+  "08-11", "08-12", "09-15", "12-22", "12-25", "12-26", 
 ];
 
 function getZwPublicHolidays(year, month) {
