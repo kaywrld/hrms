@@ -30,15 +30,10 @@ jobs:
         working-directory: frontend
         run: npm run build
         env:
-          # This project's convention is the FULL /api path — src/api/client.ts
-          # does `baseURL: import.meta.env.VITE_API_BASE_URL` directly with no
-          # further "/api" appended by callers. Unlike the HR app's workflow,
-          # do NOT use the bare domain here.
-          VITE_API_BASE_URL: https://consultant.protransenergy.co.zw/api
-          # Separate from the above: index.html's CSP meta tag substitutes
-          # %VITE_API_ORIGIN% into its connect-src directive. This one IS the
-          # bare origin (no /api) — it's only used for the CSP source list.
-          VITE_API_ORIGIN: https://consultant.protransenergy.co.zw
+          # This project's convention is the BARE domain - components append
+          # "/api/..." themselves (see components/*/*.jsx: `${VITE_API_BASE_URL}/api`).
+          # Do not add /api here, unlike the finance app's workflow.
+          VITE_API_BASE_URL: https://hr.jeccaconnect.co.zw
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -62,12 +57,12 @@ jobs:
       - name: Deploy frontend
         uses: wlixcc/SFTP-Deploy-Action@v1.2.6
         with:
-          username: ${{ secrets.STORES_CPANEL_USER }}
-          server: ${{ secrets.STORES_CPANEL_HOST }}
-          port: ${{ secrets.STORES_CPANEL_PORT }}
-          ssh_private_key: ${{ secrets.STORES_CPANEL_SSH_KEY }}
+          username: ${{ secrets.HR_CPANEL_USER }}
+          server: ${{ secrets.HR_CPANEL_HOST }}
+          port: ${{ secrets.HR_CPANEL_PORT }}
+          ssh_private_key: ${{ secrets.HR_CPANEL_SSH_KEY }}
           local_path: frontend/dist/*
-          remote_path: ${{ secrets.STORES_CPANEL_PUBLIC_HTML }}
+          remote_path: ${{ secrets.HR_CPANEL_PUBLIC_HTML }}
           sftp_only: true
 
       # --- Backend: sync source (backend/.gitignore already keeps .env,
@@ -75,29 +70,29 @@ jobs:
       - name: Deploy backend
         uses: wlixcc/SFTP-Deploy-Action@v1.2.6
         with:
-          username: ${{ secrets.STORES_CPANEL_USER }}
-          server: ${{ secrets.STORES_CPANEL_HOST }}
-          port: ${{ secrets.STORES_CPANEL_PORT }}
-          ssh_private_key: ${{ secrets.STORES_CPANEL_SSH_KEY }}
+          username: ${{ secrets.HR_CPANEL_USER }}
+          server: ${{ secrets.HR_CPANEL_HOST }}
+          port: ${{ secrets.HR_CPANEL_PORT }}
+          ssh_private_key: ${{ secrets.HR_CPANEL_SSH_KEY }}
           local_path: backend/*
-          remote_path: ${{ secrets.STORES_CPANEL_APP_ROOT }}
+          remote_path: ${{ secrets.HR_CPANEL_APP_ROOT }}
           sftp_only: true
 
       # --- Post-deploy: install deps, migrate, collect static, restart ----
-      # Same jailshell workarounds as the HR/finance apps: no `source`, no
+      # Same jailshell workarounds as the finance app: no `source`, no
       # `pip` on default PATH, so call the venv's binaries directly by path.
       - name: Run remote deploy steps
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.STORES_CPANEL_HOST }}
-          username: ${{ secrets.STORES_CPANEL_USER }}
-          port: ${{ secrets.STORES_CPANEL_PORT }}
-          key: ${{ secrets.STORES_CPANEL_SSH_KEY }}
-          envs: STORES_CPANEL_APP_ROOT,STORES_CPANEL_VENV_ACTIVATE
+          host: ${{ secrets.HR_CPANEL_HOST }}
+          username: ${{ secrets.HR_CPANEL_USER }}
+          port: ${{ secrets.HR_CPANEL_PORT }}
+          key: ${{ secrets.HR_CPANEL_SSH_KEY }}
+          envs: HR_CPANEL_APP_ROOT,HR_CPANEL_VENV_ACTIVATE
           script: |
             set -e
-            cd "$STORES_CPANEL_APP_ROOT"
-            ACTIVATE_PATH="$(printf '%s' "$STORES_CPANEL_VENV_ACTIVATE" | grep -oE '[^[:space:]]+/bin/activate')"
+            cd "$HR_CPANEL_APP_ROOT"
+            ACTIVATE_PATH="$(printf '%s' "$HR_CPANEL_VENV_ACTIVATE" | grep -oE '[^[:space:]]+/bin/activate')"
             VENV_BIN="$(dirname "$ACTIVATE_PATH")"
             "$VENV_BIN/pip" install -r requirements.txt
             "$VENV_BIN/python" manage.py migrate --noinput
@@ -105,5 +100,5 @@ jobs:
             mkdir -p tmp
             touch tmp/restart.txt
         env:
-          STORES_CPANEL_APP_ROOT: ${{ secrets.STORES_CPANEL_APP_ROOT }}
-          STORES_CPANEL_VENV_ACTIVATE: ${{ secrets.STORES_CPANEL_VENV_ACTIVATE }}
+          HR_CPANEL_APP_ROOT: ${{ secrets.HR_CPANEL_APP_ROOT }}
+          HR_CPANEL_VENV_ACTIVATE: ${{ secrets.HR_CPANEL_VENV_ACTIVATE }}
