@@ -138,16 +138,7 @@ function fmtDateLong(dateStr) {
   return new Date(y, m-1, d).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
 }
 
-// ── localStorage helpers (same keys as PayrollPage) ───────────────────────────
-function lsKey(empId, year, month) {
-  return `payroll_${empId}_${year}_${String(month+1).padStart(2,"0")}`;
-}
-function loadEdits(empId, year, month) {
-  try {
-    const s = localStorage.getItem(lsKey(empId, year, month));
-    return s ? JSON.parse(s) : { deduction:"", bonus:"", deductionReason:"" };
-  } catch { return { deduction:"", bonus:"", deductionReason:"" }; }
-}
+// (deductions/bonuses now come from the backend — see the payrollEdits effect below)
 
 // ── ZiG exchange rate — SAME localStorage key as the Payroll page, kept per
 // payroll month (never expires), so a rate set on either page is instantly
@@ -977,9 +968,26 @@ export default function HRPayslipsPage({ showToast }) {
 
   useEffect(() => {
     if (!ctxEmployees) return;
-    const e = {};
-    ctxEmployees.forEach(emp => { e[emp.id] = loadEdits(emp.id, viewYear, viewMonth); });
-    setPayrollEdits(e);
+    let cancelled = false;
+    apiFetch(`${API}/payroll/payroll-adjustments/?year=${viewYear}&month=${viewMonth + 1}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : data.results || [];
+        const map = {};
+        ctxEmployees.forEach(emp => { map[emp.id] = { deduction: "", bonus: "", deductionReason: "" }; });
+        list.forEach(adj => {
+          const empId = typeof adj.employee === "object" ? adj.employee.id : adj.employee;
+          map[empId] = {
+            deduction: Number(adj.deduction) ? String(adj.deduction) : "",
+            bonus: Number(adj.bonus) ? String(adj.bonus) : "",
+            deductionReason: adj.deduction_reason || "",
+          };
+        });
+        setPayrollEdits(map);
+      })
+      .catch(err => console.error("PayslipsPage: failed to load payroll adjustments:", err));
+    return () => { cancelled = true; };
   }, [ctxEmployees, viewYear, viewMonth]);
 
   const payrollMap = useMemo(() => {
