@@ -301,7 +301,20 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
 
   const presentRecs  = dayRecords.filter(r => ["present","late","half_day"].includes(r.status));
   const absentRecs   = dayRecords.filter(r => r.status === "absent");
-  const daysAttended = presentRecs.reduce((s,r) => s + (r.status==="half_day"?0.5:1), 0);
+  const normalDaysAttended = presentRecs.reduce((s,r) => s + (r.status==="half_day"?0.5:1), 0);
+  // Monthly-salary employees: weekend/holiday attendance offsets missed
+  // normal working days (capped at the month's working days) — same rule
+  // as the Payroll page, so the two always agree. No note shown — it just
+  // folds straight into the one combined total.
+  const extraDayCredit = isDaily ? 0 : attendanceRecs
+    .filter(r => {
+      const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
+      return empId === emp.id && !isWorkingDay(r.date) && ["present","late","half_day"].includes(r.status);
+    })
+    .reduce((s, r) => s + (r.status === "half_day" ? 0.5 : 1), 0);
+  const missingDays   = Math.max(0, workingDays - normalDaysAttended);
+  const creditApplied = Math.min(extraDayCredit, missingDays);
+  const daysAttended   = isDaily ? normalDaysAttended : normalDaysAttended + creditApplied;
   const daysAbsent   = absentRecs.length;
   const totalHours   = presentRecs.reduce((s,r) => s + hoursForRecord(r), 0);
   const lateRecs     = presentRecs.filter(r => r.status === "late");
@@ -681,7 +694,16 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
 
   const presentRecs       = empRecs.filter(r => ["present","late","half_day"].includes(r.status));
   const absentRecs        = empRecs.filter(r => r.status === "absent");
-  const daysAttended      = presentRecs.reduce((s,r) => s + (r.status==="half_day"?0.5:1), 0);
+  const normalDaysAttended = presentRecs.reduce((s,r) => s + (r.status==="half_day"?0.5:1), 0);
+  const extraDayCredit = isDaily ? 0 : attAll
+    .filter(r => {
+      const eid = typeof r.employee === "object" ? r.employee.id : r.employee;
+      return eid === emp.id && !isWorkingDay(r.date) && ["present","late","half_day"].includes(r.status);
+    })
+    .reduce((s, r) => s + (r.status === "half_day" ? 0.5 : 1), 0);
+  const missingDays   = Math.max(0, workingDays - normalDaysAttended);
+  const creditApplied = Math.min(extraDayCredit, missingDays);
+  const daysAttended       = isDaily ? normalDaysAttended : normalDaysAttended + creditApplied;
   const daysAbsent        = absentRecs.length;
   const totalHours        = presentRecs.reduce((s,r) => s + hoursForRecord(r), 0);
   const lateRecs          = presentRecs.filter(r => r.status === "late");
