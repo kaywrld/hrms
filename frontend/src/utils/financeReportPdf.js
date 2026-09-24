@@ -595,7 +595,7 @@ export function buildFinanceReport({
   const daily = onPayroll.length - monthly;
   const kpis = [
     { label: "TOTAL SALARIES",   value: money.full(totals.salaries),   color: C.navy,  glyph: "$" },
-    { label: "TOTAL BONUSES",    value: money.full(totals.bonuses),    color: C.royal, glyph: "+" },
+    { label: "TOTAL OTHER EARNINGS",    value: money.full(totals.bonuses),    color: C.royal, glyph: "+" },
     { label: "TOTAL DEDUCTIONS", value: money.full(totals.deductions), color: C.steel, glyph: "-" },
     { label: "NET PAYABLE",      value: money.full(totals.net),        color: C.ocean, glyph: "=" },
   ];
