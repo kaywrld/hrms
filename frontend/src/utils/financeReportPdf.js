@@ -4,7 +4,7 @@
 // by GET /api/payroll/computed/.
 //
 //   Page 1 : header + 4 total cards, donut (net pay by department),
-//            bar chart (salaries / bonuses / deductions by department),
+//            bar chart (salaries / other earnings / deductions by department),
 //            department summary table.
 //   Page 2 : same header + totals repeated, then the same breakdown by SITE
 //            (ranked bars, bar chart, site summary table).
@@ -13,7 +13,7 @@
 //   Page 5 : breakdown by JOB TITLE (ranked bars, bar chart, table).
 //
 // Bar charts use ONE thin bar per category, so every department / site / job
-// title fits on the chart. Salaries (blue), bonuses (green) and deductions
+// title fits on the chart. Salaries (blue), other earnings (green) and deductions
 // (red) are drawn on top of each other from the baseline, tallest first, so
 // every series stays visible whatever its height. The legend tells them apart.
 // Category names are written diagonally under the axis to save width. An amber
@@ -51,7 +51,7 @@ const SLICES = [
   [186, 214, 245], [71, 102, 150], [56, 152, 200], [148, 163, 184],
 ];
 
-// Bar-chart series colours: salaries blue, bonuses green, deductions red.
+// Bar-chart series colours: salaries blue, other earnings green, deductions red.
 const SERIES_COLORS = {
   salaries:   [26, 111, 212],
   bonuses:    [34, 165, 94],
@@ -350,7 +350,7 @@ function drawDonut(doc, { x, y, w, h, items, centerTop, centerBottom }) {
   });
 }
 
-// One bar per category: salaries (blue), bonuses (green) and deductions (red)
+// One bar per category: salaries (blue), other earnings (green) and deductions (red)
 // are drawn on top of each other from the baseline, tallest first, so the
 // smaller values always stay visible in front. A smooth "Net Payable" curve is
 // laid over the bars.
@@ -368,7 +368,7 @@ function drawGroupedBars(doc, { x, y, w, h, cats, money }) {
   const labelH = Math.min(longest * SIN + 4, 18);
   const px = x + axisW, py = y + legendH, pw = w - axisW - 2, ph = h - legendH - labelH;
   const keys = ["salaries", "bonuses", "deductions"];
-  const names = { salaries: "Salaries", bonuses: "Bonuses", deductions: "Deductions" };
+  const names = { salaries: "Salaries", bonuses: "Earnings", deductions: "Deductions" };
 
   // legend (top-right) - bar series first, then the "Net Payable" line marker.
   doc.setFont("helvetica", "normal"); doc.setFontSize(7);
@@ -622,7 +622,7 @@ export function buildFinanceReport({
       { label: firstLabel,             w: 70, get: (r) => r.name },
       { label: "Employees",            w: 26, align: "right", get: (r) => r.employees },
       { label: "Total Salaries",       w: 40, align: "right", get: (r) => money.num(r.salaries) },
-      { label: "Bonuses",              w: 34, align: "right", get: (r) => money.num(r.bonuses) },
+      { label: "Other Earnings",       w: 34, align: "right", get: (r) => money.num(r.bonuses) },
       { label: "Deductions",           w: 34, align: "right", get: (r) => money.num(r.deductions) },
       { label: "Net Payable",          w: 42, align: "right", get: (r) => money.num(r.net) },
       { label: "% of Net Payable",     w: 31, align: "right", get: share },
@@ -662,7 +662,7 @@ export function buildFinanceReport({
       });
     }
 
-    sectionTitle(doc, rx + 4, ay + 6.5, `Salaries, bonuses & deductions by ${label}`);
+    sectionTitle(doc, rx + 4, ay + 6.5, `Salaries, other earnings & deductions by ${label}`);
     drawGroupedBars(doc, {
       x: rx + 4, y: ay + 9, w: rw - 8, h: ah - 11,
       cats: topWithOther(groups, 40), money, // every department / site / title (40 is only a safety cap)
