@@ -295,7 +295,12 @@ function EditableCell({ value, onChange, onBlur, placeholder = "0.00", prefix = 
 }
 
 // ── Deduction cell with required reason popover ───────────────────────────────
-function DeductionCell({ value, reason, onSave, placeholder = "Add deduction", prefix = "$" }) {
+// `value`/`reason` are the manual "additional deduction" — the only part this
+// cell edits, saved to PayrollAdjustment exactly as before. `loanAmount` (and
+// `loanItems`, for the breakdown) is the auto-computed loan/advance
+// installment for the viewed month, added on top for display only — it comes
+// from active Long-Term Deductions and isn't editable here.
+function DeductionCell({ value, reason, onSave, placeholder = "Add deduction", prefix = "$", loanAmount = 0, loanItems = [], onManageLoans }) {
   const [open, setOpen]         = useState(false);
   const [localAmt, setLocalAmt] = useState(value);
   const [localReason, setLocalReason] = useState(reason);
@@ -343,8 +348,9 @@ function DeductionCell({ value, reason, onSave, placeholder = "Add deduction", p
 
   const [reasonError, setReasonError] = useState(false);
 
-  const numVal  = parseFloat(value);
-  const hasValue = !isNaN(numVal) && numVal > 0;
+  const numVal  = parseFloat(value) || 0;
+  const combined = numVal + (loanAmount || 0);
+  const hasValue = combined > 0;
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
@@ -366,7 +372,7 @@ function DeductionCell({ value, reason, onSave, placeholder = "Add deduction", p
       >
         {hasValue ? (
           <span style={{ fontSize: 12.5, fontFamily: "monospace", color: "#dc2626", fontWeight: 600 }}>
-            {prefix}{numVal.toFixed(2)}
+            {prefix}{combined.toFixed(2)}
           </span>
         ) : (
           <span style={{ fontSize: 11.5, color: "#cbd5e1", fontFamily: "'DM Sans',sans-serif", fontStyle: "italic" }}>
@@ -389,7 +395,7 @@ function DeductionCell({ value, reason, onSave, placeholder = "Add deduction", p
             background: "#fff", borderRadius: 12,
             border: "1.5px solid #e2e8f0",
             boxShadow: "0 8px 32px rgba(10,42,94,0.14)",
-            padding: "16px", width: 260,
+            padding: "16px", width: 280,
             fontFamily: "'DM Sans',sans-serif",
           }}
         >
@@ -401,8 +407,44 @@ function DeductionCell({ value, reason, onSave, placeholder = "Add deduction", p
             transform: "rotate(45deg)", borderRadius: 2,
           }} />
 
+          {/* Loan/advance installment for this month — auto, read-only */}
+          {loanAmount > 0 && (
+            <div style={{
+              background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 9,
+              padding: "9px 11px", marginBottom: 12,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: loanItems.length ? 5 : 0 }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#92400e" }}>
+                  Loan/Advance (auto)
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: "#92400e" }}>
+                  ${loanAmount.toFixed(2)}
+                </span>
+              </div>
+              {loanItems.map(it => (
+                <div key={it.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#a16207", marginTop: 2 }}>
+                  <span>{it.reason}</span>
+                  <span style={{ fontFamily: "monospace" }}>${Number(it.amount).toFixed(2)}</span>
+                </div>
+              ))}
+              {onManageLoans && (
+                <button
+                  type="button"
+                  onClick={() => { setOpen(false); onManageLoans(); }}
+                  style={{
+                    marginTop: 7, padding: 0, border: "none", background: "none",
+                    color: "#1557b0", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    fontFamily: "'DM Sans',sans-serif", textDecoration: "underline",
+                  }}
+                >
+                  Manage loan deductions →
+                </button>
+              )}
+            </div>
+          )}
+
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8", marginBottom: 10 }}>
-            Set Deduction
+            {loanAmount > 0 ? "Additional Deduction" : "Set Deduction"}
           </div>
 
           {/* Amount */}
@@ -830,7 +872,7 @@ function downloadPDF(rows, monthLabel, currency, zigRate) {
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
-export default function HRPayrollPage({ showToast }) {
+export default function HRPayrollPage({ showToast, onManageLoans }) {
   const [, setSearchParams] = useSearchParams();
   const goToPayslips = () => setSearchParams({ page: "payslips" }, { replace: false });
 
@@ -887,46 +929,6 @@ export default function HRPayrollPage({ showToast }) {
     setCurrency(val);
   };
 
-  // ── Data: payroll + attendance ────────────────────────────────────────────
-  const [payrolls,      setPayrolls]      = useState([]);
-  const [attendanceAll, setAttendanceAll] = useState([]);
-  const [payrollLoading, setPayrollLoading] = useState(true);
-
-  const monthStart = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-01`;
-  const lastDay    = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const monthEnd   = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-
-  useEffect(() => {
-    let cancelled = false;
-    setPayrollLoading(true);
-    // Immediately zero out attendance so stale data never shows for the wrong month
-    setAttendanceAll([]);
-
-    const run = async () => {
-      try {
-        const [prRes, attRes] = await Promise.all([
-          apiFetch(`${API}/payroll/`),
-          apiFetch(`${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&page_size=5000`),
-        ]);
-        if (cancelled) return;
-        const [prData, attData] = await Promise.all([
-          prRes.ok  ? prRes.json()  : [],
-          attRes.ok ? attRes.json() : [],
-        ]);
-        if (cancelled) return;
-        setPayrolls(Array.isArray(prData)  ? prData  : prData.results  || []);
-        setAttendanceAll(Array.isArray(attData) ? attData : attData.results || []);
-      } catch (e) {
-        if (!cancelled) console.error("PayrollPage fetchData:", e);
-      } finally {
-        if (!cancelled) setPayrollLoading(false);
-      }
-    };
-
-    run();
-    return () => { cancelled = true; };
-  }, [monthStart, monthEnd]);
-
   // ── Filters ────────────────────────────────────────────────────────────────
   const [search,       setSearch]       = useState("");
   const [deptFilter,   setDeptFilter]   = useState("all");
@@ -942,14 +944,67 @@ export default function HRPayrollPage({ showToast }) {
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
+  // Debounce the search box so every keystroke doesn't fire a request —
+  // the actual fetch below depends on debouncedSearch, not search.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // ── Data: server-side paginated + already-computed payroll rows ──────────
+  // The backend (payroll/computed/) does the full attendance/adjustment/
+  // loan join + net-pay computation and returns one page of results plus
+  // aggregate totals for the whole filtered set — the browser never has to
+  // load every employee/attendance record just to show one page of a table.
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  const [serverRows, setServerRows] = useState([]);
+  const [pageMeta, setPageMeta] = useState({ count: 0, total_pages: 1 });
+  const [aggregates, setAggregates] = useState({});
+  const [payrollLoading, setPayrollLoading] = useState(true);
+
+  // Reset to page 1 whenever a filter (or the viewed month) changes.
+  useEffect(() => {
+    setPage(1);
+  }, [viewYear, viewMonth, debouncedSearch, deptFilter, siteFilter, statusFilter, payTypeFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPayrollLoading(true);
+    const params = new URLSearchParams({
+      year: String(viewYear),
+      month: String(viewMonth + 1),
+      page: String(page),
+      page_size: String(PAGE_SIZE),
+      department: deptFilter,
+      site: siteFilter,
+      status: statusFilter,
+      pay_type: payTypeFilter,
+    });
+    if (debouncedSearch) params.set("search", debouncedSearch);
+
+    apiFetch(`${API}/payroll/computed/?${params.toString()}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled || !data) return;
+        setServerRows(Array.isArray(data.results) ? data.results : []);
+        setPageMeta({ count: data.count || 0, total_pages: data.total_pages || 1 });
+        setAggregates(data.aggregates || {});
+      })
+      .catch(e => { if (!cancelled) console.error("PayrollPage fetchData:", e); })
+      .finally(() => { if (!cancelled) setPayrollLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [viewYear, viewMonth, debouncedSearch, deptFilter, siteFilter, statusFilter, payTypeFilter, page]);
+
   // ── Per-employee editable payroll data (deduction + bonus) ────────────────
-  // Keyed by empId → { deduction: string, bonus: string }
+  // Keyed by empId → { deduction: string, bonus: string }. Kept separate
+  // from the server rows above so typing in a Deduction/Bonus cell updates
+  // that row's total instantly, without waiting for a re-fetch.
   const [payrollEdits, setPayrollEdits] = useState({});
 
-  // Load this month's deductions/bonuses from the backend whenever the
-  // viewed month or employee list changes.
   useEffect(() => {
-    if (!ctxEmployees) return;
     let cancelled = false;
     apiFetch(`${API}/payroll/payroll-adjustments/?year=${viewYear}&month=${viewMonth + 1}`)
       .then(r => r.ok ? r.json() : [])
@@ -957,7 +1012,6 @@ export default function HRPayrollPage({ showToast }) {
         if (cancelled) return;
         const list = Array.isArray(data) ? data : data.results || [];
         const map = {};
-        ctxEmployees.forEach(emp => { map[emp.id] = { deduction: "", bonus: "", deductionReason: "" }; });
         list.forEach(adj => {
           const empId = typeof adj.employee === "object" ? adj.employee.id : adj.employee;
           map[empId] = {
@@ -970,7 +1024,7 @@ export default function HRPayrollPage({ showToast }) {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [ctxEmployees, viewYear, viewMonth]);
+  }, [viewYear, viewMonth]);
 
   const updateEdit = useCallback((empId, field, value) => {
     setPayrollEdits(prev => {
@@ -988,163 +1042,131 @@ export default function HRPayrollPage({ showToast }) {
     return found ? found.name : val;
   };
   const workingDays = getWorkingDaysInMonth(viewYear, viewMonth);
-
-  const payrollMap = useMemo(() => {
-    const m = {};
-    payrolls.forEach(p => { m[p.employee] = p; }); // store entire object
-    return m;
-  }, [payrolls]);
-
-  const attendanceMap = useMemo(() => {
-    const m = {};
-    attendanceAll.forEach(rec => {
-      if (rec.status !== "present" && rec.status !== "late" && rec.status !== "half_day") return;
-      if (!isWorkingDay(rec.date)) return;
-      // Guard: only count records that belong to the currently viewed month
-      const recDate = new Date(rec.date);
-      if (recDate.getFullYear() !== viewYear || recDate.getMonth() !== viewMonth) return;
-      const empId = typeof rec.employee === "object" ? rec.employee.id : rec.employee;
-      m[empId] = (m[empId] || 0) + (rec.status === "half_day" ? 0.5 : 1);
-    });
-    return m;
-  }, [attendanceAll, viewYear, viewMonth]);
-
-  // Daily-rate employees are paid for every day they actually worked, including weekends —
-  // so this map does NOT filter out non-working days like attendanceMap above does.
-  const attendanceAllDaysMap = useMemo(() => {
-    const m = {};
-    attendanceAll.forEach(rec => {
-      if (rec.status !== "present" && rec.status !== "late" && rec.status !== "half_day") return;
-      const recDate = new Date(rec.date);
-      if (recDate.getFullYear() !== viewYear || recDate.getMonth() !== viewMonth) return;
-      const empId = typeof rec.employee === "object" ? rec.employee.id : rec.employee;
-      m[empId] = (m[empId] || 0) + (rec.status === "half_day" ? 0.5 : 1);
-    });
-    return m;
-  }, [attendanceAll, viewYear, viewMonth]);
-
-  // Days a monthly-salary employee was marked present on a WEEKEND or
-  // PUBLIC HOLIDAY — these don't count as normal working days on their own,
-  // but they can offset normal working days that were missed, so someone
-  // who comes in on their day off isn't penalized twice (once for the
-  // missed weekday, once for not being paid for the day they did work).
-  const extraDayCreditMap = useMemo(() => {
-    const m = {};
-    attendanceAll.forEach(rec => {
-      if (rec.status !== "present" && rec.status !== "late" && rec.status !== "half_day") return;
-      if (isWorkingDay(rec.date)) return; // only non-working days count as "extra"
-      const recDate = new Date(rec.date);
-      if (recDate.getFullYear() !== viewYear || recDate.getMonth() !== viewMonth) return;
-      const empId = typeof rec.employee === "object" ? rec.employee.id : rec.employee;
-      m[empId] = (m[empId] || 0) + (rec.status === "half_day" ? 0.5 : 1);
-    });
-    return m;
-  }, [attendanceAll, viewYear, viewMonth]);
-
   const daysInViewedMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
-  const enriched = useMemo(() => {
-    if (!ctxEmployees) return [];
-    return ctxEmployees.map(emp => {
-      const payrollEntry  = payrollMap[emp.id] || {};
-      const isDaily        = payrollEntry.pay_type === 'daily';
-      const monthlySalary  = isDaily ? 0 : (parseFloat(payrollEntry.basic_salary) || 0);
-      const bankName      = currency === "ZIG"
-        ? (payrollEntry.bank_name_zig    || "No ZiG bank on file")
-        : (payrollEntry.bank_name_usd    || "No USD bank on file");
-      const bankAccount   = currency === "ZIG"
-        ? (payrollEntry.bank_account_zig || "—")
-        : (payrollEntry.bank_account_usd || "—");
-      const dailyRate     = isDaily
-        ? (parseFloat(payrollEntry.daily_rate) || 0)
-        : (workingDays > 0 ? monthlySalary / workingDays : 0);
-      // Monthly-salary employees: extra weekend/holiday attendance offsets
-      // missed normal working days — capped so it can never push attendance
-      // above 100% of the month's working days (this makes someone whole,
-      // it doesn't grant bonus days on top of a full attendance record).
-      const normalDaysAttended = attendanceMap[emp.id] || 0;
-      const extraDayCredit     = extraDayCreditMap[emp.id] || 0;
-      const missingDays        = Math.max(0, workingDays - normalDaysAttended);
-      const creditApplied      = Math.min(extraDayCredit, missingDays);
-      const monthlyDaysAttended = normalDaysAttended + creditApplied;
-      const daysAttended  = isDaily ? (attendanceAllDaysMap[emp.id] || 0) : monthlyDaysAttended;
-      const netSalary     = dailyRate * daysAttended;
-      const edits         = payrollEdits[emp.id] || {};
-      const deduction     = parseFloat(edits.deduction) || 0;
-      const bonus         = parseFloat(edits.bonus) || 0;
-      const finalPay      = Math.max(0, netSalary - deduction + bonus);
-      const fullName      = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
-      const deptName      = emp.department_name || departments.find(d => d.id === emp.department)?.name || "—";
-      const siteNameVal   = emp.site_name || sites.find(s => s.id === emp.site)?.name || "—";
-      return {
-        ...emp, fullName, deptName, siteNameVal, isDaily,
-        monthlySalary, dailyRate, daysAttended,
-        creditApplied: isDaily ? 0 : creditApplied,
-        netSalary, deduction, bonus, finalPay,
-        deductionStr: edits.deduction || "",
-        bonusStr:     edits.bonus || "",
-        deductionReason: edits.deductionReason || "",
-        bankName, bankAccount,
-      };
-    });
-  }, [ctxEmployees, payrollMap, attendanceMap, attendanceAllDaysMap, extraDayCreditMap, workingDays, departments, sites, payrollEdits, currency]);
+  // Adapt a computed server row into the same shape the table/export code
+  // already expects, applying any not-yet-saved local edit on top of the
+  // server's net_salary/loan figures so editing feels instant.
+  const mapRow = useCallback((row) => {
+    const edits = payrollEdits[row.employee_id];
+    const manualDeduction = edits ? (parseFloat(edits.deduction) || 0) : (row.manual_deduction || 0);
+    const bonus           = edits ? (parseFloat(edits.bonus) || 0)     : (row.bonus || 0);
+    const loanDeduction   = row.loan_deduction || 0;
+    const deduction       = manualDeduction + loanDeduction;
+    const netSalary        = row.net_salary || 0;
+    const finalPay         = Math.max(0, netSalary - deduction + bonus);
+    const bankName    = currency === "ZIG"
+      ? (row.bank_name_zig    || "No ZiG bank on file")
+      : (row.bank_name_usd    || "No USD bank on file");
+    const bankAccount = currency === "ZIG"
+      ? (row.bank_account_zig || "—")
+      : (row.bank_account_usd || "—");
+    return {
+      id: row.employee_id,
+      employee_number: row.employee_number,
+      first_name: row.first_name,
+      middle_name: row.middle_name,
+      last_name: row.last_name,
+      address: row.address,
+      fullName: row.full_name,
+      job_title: row.job_title,
+      department: row.department,
+      department_name: row.department_name,
+      deptName: row.department_name,
+      site: row.site,
+      site_name: row.site_name,
+      siteNameVal: row.site_name,
+      status: row.status,
+      isDaily: row.is_daily,
+      monthlySalary: row.monthly_salary || 0,
+      dailyRate: row.daily_rate || 0,
+      daysAttended: row.days_attended || 0,
+      creditApplied: row.credit_applied || 0,
+      netSalary, deduction, bonus, finalPay,
+      manualDeduction, loanDeduction,
+      loanItems: row.loan_items || [],
+      deductionStr: edits ? (edits.deduction || "") : (row.manual_deduction ? String(row.manual_deduction) : ""),
+      bonusStr:     edits ? (edits.bonus || "")     : (row.bonus ? String(row.bonus) : ""),
+      deductionReason: edits ? (edits.deductionReason || "") : (row.deduction_reason || ""),
+      bankName, bankAccount,
+    };
+  }, [payrollEdits, currency]);
 
-  const filtered = useMemo(() => {
-    return enriched.filter(e => {
-      const q = search.toLowerCase();
-      const matchSearch = !q ||
-        e.fullName.toLowerCase().includes(q) ||
-        (e.job_title || "").toLowerCase().includes(q) ||
-        e.deptName.toLowerCase().includes(q);
-      const matchDept = deptFilter === "all" ||
-        String(e.department) === deptFilter ||
-        (e.department_name || "").toLowerCase() === deptFilter.toLowerCase();
-      const matchSite = siteFilter === "all" ||
-        String(e.site) === siteFilter ||
-        (e.site_name || "").toLowerCase() === siteFilter.toLowerCase();
-      const matchStatus = statusFilter === "all" || e.status === statusFilter;
-      const matchPayType = payTypeFilter === "all" || (payTypeFilter === "daily" ? e.isDaily : !e.isDaily);
-      const isInactive = e.status && e.status !== "employed";
-      const matchActiveOrWorked = !isInactive || e.daysAttended > 0;
-      return matchSearch && matchDept && matchSite && matchStatus && matchPayType && matchActiveOrWorked;
-    });
-  }, [enriched, search, deptFilter, siteFilter, statusFilter, payTypeFilter]);
+  // `filtered` is now just the current page — filtering/search/pagination
+  // all happen server-side. Kept under this name so the render code below
+  // (which already expects an array called `filtered`) didn't need to change.
+  const filtered = useMemo(() => serverRows.map(mapRow), [serverRows, mapRow]);
 
   // ── Summary stats ─────────────────────────────────────────────────────────
-  const totalNetPayable = filtered.reduce((s, e) => s + e.finalPay, 0);
-  const totalDeductions = filtered.reduce((s, e) => s + e.deduction, 0);
-  const totalBonuses    = filtered.reduce((s, e) => s + e.bonus, 0);
-  const avgAttendance   = enriched.length > 0
-    ? Math.round(enriched.reduce((s, e) => s + e.daysAttended, 0) / enriched.length * 10) / 10
-    : 0;
+  // These come from the backend's aggregates (computed over every matching
+  // employee, not just the current page) so totals stay accurate while only
+  // one page of rows is ever sent to the browser.
+  const totalNetPayable = aggregates.total_net_payable || 0;
+  const totalDeductions = aggregates.total_deductions || 0;
+  const totalBonuses    = aggregates.total_bonuses || 0;
+  const avgAttendance   = aggregates.avg_attendance || 0;
+  const totalEmployeesAllPayTypes = aggregates.total_employees || 0;
+  const monthlyEmployeeCount = aggregates.monthly_count || 0;
+  const dailyEmployeeCount   = aggregates.daily_count || 0;
 
-  // ── Download rows ─────────────────────────────────────────────────────────
-  const tableRows = filtered.map(e => ({
-    fullName: e.fullName,
-    jobTitle: e.job_title || "—",
-    dept: e.deptName,
-    site: e.siteNameVal,
-    bankName: e.bankName,
-    bankAccount: e.bankAccount,
-    isDaily: e.isDaily,
-    daysAttended: e.daysAttended,
-    workingDays: e.isDaily ? daysInViewedMonth : workingDays,
-    baseSalary: currency === "ZIG" ? e.monthlySalary * (parseFloat(zigRate) || 1) : e.monthlySalary,
-    dailyRate:  currency === "ZIG" ? e.dailyRate   * (parseFloat(zigRate) || 1) : e.dailyRate,
-    netSalary:  currency === "ZIG" ? e.netSalary  * (parseFloat(zigRate) || 1) : e.netSalary,
-    deduction:  currency === "ZIG" ? e.deduction  * (parseFloat(zigRate) || 1) : e.deduction,
-    bonus:      currency === "ZIG" ? e.bonus       * (parseFloat(zigRate) || 1) : e.bonus,
-    finalPay:   currency === "ZIG" ? e.finalPay   * (parseFloat(zigRate) || 1) : e.finalPay,
-    // Raw USD for PDF template
-    baseSalaryUSD: e.monthlySalary,
-    dailyRateUSD:  e.dailyRate,
-    netSalaryUSD:  e.netSalary,
-    deductionUSD:  e.deduction,
-    bonusUSD:      e.bonus,
-    finalPayUSD:   e.finalPay,
-  }));
+  // ── Export (Excel / PDF): pulls every filtered row across all pages ──────
+  // Exports intentionally aren't limited to the one page currently on
+  // screen — this is a one-off, user-initiated fetch, not something that
+  // runs on every render, so it's fine for it to walk every matching page.
+  const buildExportRows = useCallback(async () => {
+    const EXPORT_PAGE_SIZE = 500;
+    let all = [];
+    let p = 1;
+    // total_pages is based on PAGE_SIZE; recompute how many EXPORT_PAGE_SIZE
+    // pages we need once we see the real count on the first response.
+    while (true) {
+      const params = new URLSearchParams({
+        year: String(viewYear),
+        month: String(viewMonth + 1),
+        page: String(p),
+        page_size: String(EXPORT_PAGE_SIZE),
+        department: deptFilter,
+        site: siteFilter,
+        status: statusFilter,
+        pay_type: payTypeFilter,
+      });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      const res = await apiFetch(`${API}/payroll/computed/?${params.toString()}`);
+      if (!res.ok) break;
+      const data = await res.json();
+      all = all.concat(data.results || []);
+      if (p >= (data.total_pages || 1)) break;
+      p += 1;
+    }
+    return all.map(mapRow).map(e => ({
+      fullName: e.fullName,
+      jobTitle: e.job_title || "—",
+      dept: e.deptName,
+      site: e.siteNameVal,
+      bankName: e.bankName,
+      bankAccount: e.bankAccount,
+      isDaily: e.isDaily,
+      daysAttended: e.daysAttended,
+      workingDays: e.isDaily ? daysInViewedMonth : workingDays,
+      baseSalary: currency === "ZIG" ? e.monthlySalary * (parseFloat(zigRate) || 1) : e.monthlySalary,
+      dailyRate:  currency === "ZIG" ? e.dailyRate   * (parseFloat(zigRate) || 1) : e.dailyRate,
+      netSalary:  currency === "ZIG" ? e.netSalary  * (parseFloat(zigRate) || 1) : e.netSalary,
+      deduction:  currency === "ZIG" ? e.deduction  * (parseFloat(zigRate) || 1) : e.deduction,
+      bonus:      currency === "ZIG" ? e.bonus       * (parseFloat(zigRate) || 1) : e.bonus,
+      finalPay:   currency === "ZIG" ? e.finalPay   * (parseFloat(zigRate) || 1) : e.finalPay,
+      // Raw USD for PDF template
+      baseSalaryUSD: e.monthlySalary,
+      dailyRateUSD:  e.dailyRate,
+      netSalaryUSD:  e.netSalary,
+      deductionUSD:  e.deduction,
+      bonusUSD:      e.bonus,
+      finalPayUSD:   e.finalPay,
+    }));
+  }, [viewYear, viewMonth, deptFilter, siteFilter, statusFilter, payTypeFilter, debouncedSearch, mapRow, daysInViewedMonth, workingDays, currency, zigRate]);
 
-  const loading = ctxLoading?.employees || payrollLoading || !ctxEmployees;
+  const [exporting, setExporting] = useState(false);
+
+  const loading = payrollLoading;
 
   const today = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
@@ -1331,8 +1353,8 @@ export default function HRPayrollPage({ showToast }) {
                   overflow: "hidden", zIndex: 200,
                 }}>
                   {[
-                    { label: `Download as Excel${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}${siteFilter !== "all" ? ` — ${siteName(siteFilter)}` : ""}`, icon: "📊", action: () => { downloadExcel(tableRows, `payroll${payTypeFilter !== "all" ? `-${payTypeFilter}` : ""}${siteFilter !== "all" ? `-${siteName(siteFilter).replace(/\s+/g, "_")}` : ""}-${monthLabel.replace(/ /g, "-")}.xlsx`, currency, zigRate); setDownloadOpen(false); } },
-                    { label: `Download as PDF${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}`, icon: "📄", action: () => { downloadPDF(tableRows, monthLabel, currency, zigRate); setDownloadOpen(false); } },
+                    { label: `Download as Excel${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}${siteFilter !== "all" ? ` — ${siteName(siteFilter)}` : ""}`, icon: "📊", action: async () => { setDownloadOpen(false); setExporting(true); try { const rows = await buildExportRows(); downloadExcel(rows, `payroll${payTypeFilter !== "all" ? `-${payTypeFilter}` : ""}${siteFilter !== "all" ? `-${siteName(siteFilter).replace(/\s+/g, "_")}` : ""}-${monthLabel.replace(/ /g, "-")}.xlsx`, currency, zigRate); } finally { setExporting(false); } } },
+                    { label: `Download as PDF${payTypeFilter !== "all" ? ` — ${payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"}` : ""}`, icon: "📄", action: async () => { setDownloadOpen(false); setExporting(true); try { const rows = await buildExportRows(); downloadPDF(rows, monthLabel, currency, zigRate); } finally { setExporting(false); } } },
                   ].map(item => (
                     <button key={item.label} onClick={item.action} style={{
                       display: "flex", alignItems: "center", gap: 10,
@@ -1435,7 +1457,7 @@ export default function HRPayrollPage({ showToast }) {
           <StatCard
             label="Total Final Payable"
             value={fmtAmount(totalNetPayable, currency, zigRate)}
-            sub={`${filtered.length} employees`}
+            sub={`${pageMeta.count} employees`}
             accent="#7c3aed" bg="#f5f3ff"
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2" /><line x1="2" y1="10" x2="22" y2="10" /></svg>}
           />
@@ -1463,9 +1485,9 @@ export default function HRPayrollPage({ showToast }) {
           {/* Pay Type tabs */}
           <div className="pr-paytype-tabs" style={{ display: "flex", gap: 6, padding: "16px 20px 0" }}>
             {[
-              ["all",     "All Employees", enriched.length],
-              ["monthly", "Monthly Salary", enriched.filter(e => !e.isDaily).length],
-              ["daily",   "Daily Rate",     enriched.filter(e => e.isDaily).length],
+              ["all",     "All Employees", totalEmployeesAllPayTypes],
+              ["monthly", "Monthly Salary", monthlyEmployeeCount],
+              ["daily",   "Daily Rate",     dailyEmployeeCount],
             ].map(([val, label, count]) => (
               <button
                 key={val}
@@ -1541,7 +1563,7 @@ export default function HRPayrollPage({ showToast }) {
 
             {/* Count */}
             <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap", padding: "0 4px" }}>
-              {filtered.length} of {ctxEmployees?.length ?? 0} employees
+              {pageMeta.count} matching · page {page} of {pageMeta.total_pages}
             </div>
           </div>
 
@@ -1670,7 +1692,7 @@ export default function HRPayrollPage({ showToast }) {
                         )}
                       </td>
 
-                      {/* Deduction (editable) */}
+                      {/* Deduction (editable) — combined: auto loan/advance installment + manual extra */}
                       <td style={{ padding: "11px 14px", textAlign: "right" }}>
                         <div style={{ display: "flex", justifyContent: "flex-end" }}>
                           <DeductionCell
@@ -1682,8 +1704,17 @@ export default function HRPayrollPage({ showToast }) {
                             }}
                             placeholder="Add deduction"
                             prefix="$"
+                            loanAmount={emp.loanDeduction}
+                            loanItems={emp.loanItems}
+                            onManageLoans={onManageLoans}
                           />
                         </div>
+                        {emp.loanDeduction > 0 && (
+                          <div style={{ fontSize: 10, color: "#a16207", fontFamily: "'DM Sans',sans-serif", marginTop: 2, textAlign: "right" }}
+                               title={emp.loanItems.map(it => `${it.reason}: $${Number(it.amount).toFixed(2)}`).join(", ")}>
+                            incl. {fmtUSD(emp.loanDeduction)} loan/advance
+                          </div>
+                        )}
                         {emp.deduction > 0 && currency === "ZIG" && zigRate && (
                           <div style={{ fontSize: 10, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", marginTop: 2, textAlign: "right" }}>
                             = ZiG {deductionDisplay.toFixed(2)}
@@ -1737,17 +1768,17 @@ export default function HRPayrollPage({ showToast }) {
                 <tfoot>
                   <tr style={{ background: "linear-gradient(135deg,#f8faff,#eff6ff)", borderTop: "2px solid #e2e8f0" }}>
                     <td colSpan={3} style={{ padding: "12px 14px", fontWeight: 700, fontSize: 12, color: "#0a2a5e", fontFamily: "'DM Sans',sans-serif" }}>
-                      Totals ({filtered.length} employees)
+                      Totals ({pageMeta.count} employees)
                     </td>
                     {/* Attendance col — blank */}
                     <td style={{ padding: "12px 14px" }} />
                     {/* Base salary total */}
                     <td style={{ padding: "12px 14px", textAlign: "right", fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: "#0a2a5e" }}>
-                      {fmtAmount(filtered.reduce((s, e) => s + e.monthlySalary, 0), currency, zigRate)}
+                      {fmtAmount(aggregates.total_base_salary || 0, currency, zigRate)}
                     </td>
                     {/* Net salary total */}
                     <td style={{ padding: "12px 14px", textAlign: "right", fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: "#0a2a5e" }}>
-                      {fmtAmount(filtered.reduce((s, e) => s + e.netSalary, 0), currency, zigRate)}
+                      {fmtAmount(aggregates.total_net_salary || 0, currency, zigRate)}
                     </td>
                     {/* Deduction total */}
                     <td style={{ padding: "12px 14px", textAlign: "right" }}>
@@ -1772,6 +1803,43 @@ export default function HRPayrollPage({ showToast }) {
               )}
             </table>
           </div>
+
+          {/* Pagination */}
+          {pageMeta.total_pages > 1 && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "12px 20px", borderTop: "1px solid #f1f5f9" }}>
+              <span style={{ fontSize: 12, color: "#64748b", fontFamily: "'DM Sans',sans-serif" }}>
+                Page {page} of {pageMeta.total_pages} — {pageMeta.count} employees
+              </span>
+              <button
+                type="button"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                style={{
+                  padding: "7px 14px", borderRadius: 8, border: "1.5px solid #e2e8f0",
+                  background: (page <= 1 || loading) ? "#f8fafc" : "#fff",
+                  color: (page <= 1 || loading) ? "#cbd5e1" : "#334155",
+                  fontSize: 12.5, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+                  cursor: (page <= 1 || loading) ? "not-allowed" : "pointer",
+                }}
+              >
+                ← Previous
+              </button>
+              <button
+                type="button"
+                disabled={page >= pageMeta.total_pages || loading}
+                onClick={() => setPage(p => Math.min(pageMeta.total_pages, p + 1))}
+                style={{
+                  padding: "7px 14px", borderRadius: 8, border: "1.5px solid #e2e8f0",
+                  background: (page >= pageMeta.total_pages || loading) ? "#f8fafc" : "#fff",
+                  color: (page >= pageMeta.total_pages || loading) ? "#cbd5e1" : "#334155",
+                  fontSize: 12.5, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+                  cursor: (page >= pageMeta.total_pages || loading) ? "not-allowed" : "pointer",
+                }}
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

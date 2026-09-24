@@ -48,12 +48,16 @@ class AttendanceListCreateView(generics.ListCreateAPIView):
         date_after  = self.request.query_params.get('date_after')
         date_before = self.request.query_params.get('date_before')
         employee    = self.request.query_params.get('employee')
+        employee_ids = self.request.query_params.get('employee_ids')  # comma-separated
         department  = self.request.query_params.get('department')
 
         if date:        qs = qs.filter(date=date)
         if date_after:  qs = qs.filter(date__gte=date_after)
         if date_before: qs = qs.filter(date__lte=date_before)
         if employee:    qs = qs.filter(employee_id=employee)
+        if employee_ids:
+            ids = [i for i in employee_ids.split(',') if i.strip().isdigit()]
+            qs = qs.filter(employee_id__in=ids)
         if department:  qs = qs.filter(employee__department_id=department)
 
         return qs.order_by('-date')

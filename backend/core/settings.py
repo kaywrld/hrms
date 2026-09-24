@@ -87,27 +87,34 @@ DATABASES = {
 }
 
 # Redis Cache
-#REDIS_URL defaults to a local Redis instance (db 1).
-#Override in .env for staging/production: REDIS_URL=redis://:password@host:6379/1
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/1'),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        },
-        'TIMEOUT': 300,  # 5 min default TTL; individual cache calls may override
+# REDIS_URL defaults to a local Redis instance (db 1).
+# Override in .env for staging/production: REDIS_URL=redis://:password@host:6379/1
+#
+# Locally (e.g. on Windows) you often won't have Redis installed/running yet.
+# Rather than hand-editing this block before every deploy, control it from
+# .env instead: add `USE_REDIS_CACHE=False` to your local .env and this falls
+# back to Django's in-memory cache. Leave it unset (or True) on cPanel/prod,
+# where Redis is expected to be running, and nothing here needs to change.
+if config('USE_REDIS_CACHE', default=True, cast=bool):
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/1'),
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            },
+            'TIMEOUT': 300,  # 5 min default TTL; individual cache calls may override
+        }
     }
-}
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
-
-# CACHES = {
-#     'default': {
-#         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-#     }
-# }
 
 # Media files (profile pictures)
 import os

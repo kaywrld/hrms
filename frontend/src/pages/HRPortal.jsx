@@ -10,6 +10,7 @@ import { performLogout, startInactivityTimer, startTokenRefreshTimer, apiFetch }
 import { useSearchParams } from "react-router-dom";
 import HREmployeesPage   from "../components/HRPortal/EmployeesPage";
 import HRPayrollPage     from "../components/HRPortal/PayrollPage";
+import HRLongTermDeductionsPage from "../components/HRPortal/LongTermDeductionsPage";
 import HRPayslipsPage    from "../components/HRPortal/PayslipsPage";
 import HRAttendancePage  from "../components/HRPortal/AttendancePage";
 import HRAdminsPage     from "../components/HRPortal/HRAdminsPage";
@@ -303,6 +304,15 @@ const NAV_ITEMS = [
         <rect x="2" y="5" width="20" height="14" rx="2" />
         <line x1="2" y1="10" x2="22" y2="10" />
         <line x1="6" y1="15" x2="10" y2="15" />
+      </svg>
+    ),
+  },
+  {
+    key: "long_term_deductions", label: "Loans & Advances",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v8" /><path d="M9.5 10a2.5 2.5 0 0 1 2.5-1.5h.5a2 2 0 0 1 0 4h-1a2 2 0 0 0 0 4h.5a2.5 2.5 0 0 0 2.5-1.5" />
       </svg>
     ),
   },
@@ -2262,7 +2272,10 @@ function HRPortalInner() {
         <HRAttendancePage showToast={showToast} />
       );
       case "payroll":    return (
-        <HRPayrollPage showToast={showToast} />
+        <HRPayrollPage showToast={showToast} onManageLoans={() => setPage("long_term_deductions")} />
+      );
+      case "long_term_deductions": return (
+        <HRLongTermDeductionsPage showToast={showToast} />
       );
       case "payslips":   return (
         <HRPayslipsPage showToast={showToast} />

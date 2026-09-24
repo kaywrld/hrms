@@ -265,10 +265,15 @@ async function generateAndDownloadPDF(htmlContent, filename = "payslips.pdf") {
 // ─────────────────────────────────────────────────────────────────────────────
 // PayslipDocument — the clean, printable payslip card shown on screen
 // ─────────────────────────────────────────────────────────────────────────────
-function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edits, currency, zigRate }) {
+function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edits, loan, currency, zigRate }) {
   const deduction       = parseFloat(edits?.deduction)       || 0;
   const bonus           = parseFloat(edits?.bonus)           || 0;
   const deductionReason = edits?.deductionReason             || "";
+  // Long-term deduction (loan/advance) installment due this month — separate
+  // from the manual deduction above, folded in here so the payslip's total
+  // deduction and net pay match what the Payroll page shows.
+  const loanAmount = loan?.amount || 0;
+  const loanItems  = loan?.items  || [];
 
   const isDaily       = payrollRecord?.pay_type === 'daily';
   const workingDays   = getWorkingDays(year, month);
@@ -313,7 +318,7 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
   // Gross = attendance-prorated salary + allowances
   const attendanceEarning = dailyRate * daysAttended;
   const grossEarnings     = attendanceEarning + allowances + bonus;
-  const totalDeductions   = deduction;
+  const totalDeductions   = deduction + loanAmount;
   const netPay            = Math.max(0, grossEarnings - totalDeductions);
 
   const fullName   = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
@@ -488,7 +493,7 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
             <td style={valueCell}>{address}</td>
             <td style={labelCell}>Payment Method</td>
             <td style={valueCell}>
-              {bankName !== "—" ? `Bank Transfer — ${bankName}` : "Cash / Bank Transfer"}
+              {bankName !== "—" ? `Bank Transfer: ${bankName}` : "Cash / Bank Transfer"}
             </td>
           </tr>
           {bankAcct !== "—" && (
@@ -570,15 +575,26 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
             </tr>
           )}
           {/* Deduction */}
-          {deduction > 0 ? (
+          {deduction > 0 && (
             <tr>
               <td style={{ ...td(), color: T.red }}>
-                Deduction{deductionReason ? ` — ${deductionReason}` : ""}
+                Deduction{deductionReason ? ` : ${deductionReason}` : ""}
               </td>
               <td style={td(true)}>—</td>
               <td style={{ ...td(true), color: T.red, fontWeight: 700 }}>{fmtUSD(deduction)}</td>
             </tr>
-          ) : (
+          )}
+          {/* Long-term deduction (loan/advance) — one row per active plan */}
+          {loanItems.map(item => (
+            <tr key={item.id}>
+              <td style={{ ...td(), color: T.red }}>
+                Loan/Advance Repayment{item.reason ? ` : ${item.reason}` : ""}
+              </td>
+              <td style={td(true)}>—</td>
+              <td style={{ ...td(true), color: T.red, fontWeight: 700 }}>{fmtUSD(parseFloat(item.amount) || 0)}</td>
+            </tr>
+          ))}
+          {deduction <= 0 && loanAmount <= 0 && (
             <tr>
               <td style={{ ...td(), color: T.faint, fontStyle: "italic" }}>No deductions this period</td>
               <td style={td(true)}>—</td>
@@ -595,8 +611,8 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
             <td style={{ padding: "12px 4px", fontWeight: 800, fontSize: 13.5, color: T.navy, textAlign: "right", fontFamily: "monospace" }}>
               {fmtUSD(grossEarnings)}
             </td>
-            <td style={{ padding: "12px 4px", fontWeight: 800, fontSize: 12.5, color: deduction > 0 ? T.red : T.faint, textAlign: "right", fontFamily: "monospace" }}>
-              {deduction > 0 ? fmtUSD(deduction) : "—"}
+            <td style={{ padding: "12px 4px", fontWeight: 800, fontSize: 12.5, color: totalDeductions > 0 ? T.red : T.faint, textAlign: "right", fontFamily: "monospace" }}>
+              {totalDeductions > 0 ? fmtUSD(totalDeductions) : "—"}
             </td>
           </tr>
         </tfoot>
@@ -661,10 +677,12 @@ function PayslipDocument({ emp, year, month, attendanceRecs, payrollRecord, edit
 // ─────────────────────────────────────────────────────────────────────────────
 // HTML string builder for PDF (mirrors PayslipDocument layout)
 // ─────────────────────────────────────────────────────────────────────────────
-function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits, currency, zigRate }) {
+function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits, loan, currency, zigRate }) {
   const deduction       = parseFloat(edits?.deduction)       || 0;
   const bonus           = parseFloat(edits?.bonus)           || 0;
   const deductionReason = edits?.deductionReason             || "";
+  const loanAmount = loan?.amount || 0;
+  const loanItems  = loan?.items  || [];
 
   const isDaily            = payrollRecord?.pay_type === 'daily';
   const workingDays       = getWorkingDays(year, month);
@@ -700,7 +718,8 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
   const lateRecs          = presentRecs.filter(r => r.status === "late");
   const attendanceEarning = dailyRate * daysAttended;
   const grossEarnings     = attendanceEarning + allowances + bonus;
-  const netPay            = Math.max(0, grossEarnings - deduction);
+  const totalDeductions   = deduction + loanAmount;
+  const netPay            = Math.max(0, grossEarnings - totalDeductions);
 
   const fullName   = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
   const jobTitle   = emp.job_title || emp.position || "—";
@@ -828,17 +847,23 @@ function buildPayslipHTMLString({ emp, year, month, attAll, payrollRecord, edits
         <td style="${tdSt}color:${T.red}">Deduction${deductionReason ? ` — ${deductionReason}` : ""}</td>
         <td style="${tdSt}text-align:right">—</td>
         <td style="${tdSt}text-align:right;font-family:monospace;font-weight:700;color:${T.red}">${fmtUSD(deduction)}</td>
-      </tr>` : `<tr>
+      </tr>` : ""}
+      ${loanItems.map(item => `<tr>
+        <td style="${tdSt}color:${T.red}">Loan/Advance Repayment${item.reason ? ` — ${item.reason}` : ""}</td>
+        <td style="${tdSt}text-align:right">—</td>
+        <td style="${tdSt}text-align:right;font-family:monospace;font-weight:700;color:${T.red}">${fmtUSD(parseFloat(item.amount) || 0)}</td>
+      </tr>`).join("")}
+      ${(deduction <= 0 && loanAmount <= 0) ? `<tr>
         <td style="${tdSt}color:${T.faint};font-style:italic">No deductions this period</td>
         <td style="${tdSt}text-align:right">—</td>
         <td style="${tdSt}text-align:right;color:${T.faint}">—</td>
-      </tr>`}
+      </tr>` : ""}
     </tbody>
     <tfoot>
       <tr style="border-top:1.5px solid ${N}">
         <td style="padding:12px 4px;font-weight:800;font-size:12.5px;color:${N};text-transform:uppercase;letter-spacing:.04em">Gross Earnings</td>
         <td style="padding:12px 4px;font-weight:800;font-size:13.5px;color:${N};text-align:right;font-family:monospace">${fmtUSD(grossEarnings)}</td>
-        <td style="padding:12px 4px;font-weight:800;font-size:12.5px;color:${deduction > 0 ? T.red : T.faint};text-align:right;font-family:monospace">${deduction > 0 ? fmtUSD(deduction) : "—"}</td>
+        <td style="padding:12px 4px;font-weight:800;font-size:12.5px;color:${totalDeductions > 0 ? T.red : T.faint};text-align:right;font-family:monospace">${totalDeductions > 0 ? fmtUSD(totalDeductions) : "—"}</td>
       </tr>
     </tfoot>
   </table>
@@ -939,23 +964,80 @@ export default function HRPayslipsPage({ showToast }) {
   const lastDay    = new Date(viewYear, viewMonth+1, 0).getDate();
   const monthEnd   = `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
 
+  const departments = ctxDepartments || [];
+
+  // Debounce the search box so it doesn't fire a request per keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // ── Paging: which employees appear on this page ───────────────────────────
+  // Each rendered payslip is a full, detailed document (per-day attendance,
+  // late-arrival breakdowns, etc.) — rendering thousands of these at once is
+  // exactly the "load 5000 rows at once" problem, so only one page's worth
+  // of employees is ever resolved/rendered. The employee list, search, and
+  // the "inactive employees only show up if they worked" rule are all
+  // resolved server-side by the same computed-payroll endpoint the Payroll
+  // page uses (it already does this correctly without an attendance
+  // row-count cap).
+  const PAGE_SIZE = 12;
+  const [page, setPage] = useState(1);
+  const [pageMeta, setPageMeta] = useState({ count: 0, total_pages: 1 });
+  const [pageEmployeeIds, setPageEmployeeIds] = useState([]);
+  // Long-term deductions (loans/advances) for this page's employees, keyed
+  // by employee id — { amount, items: [{id, reason, amount}] }. Sourced
+  // from the same computed-payroll endpoint the Payroll page uses, so the
+  // amount folded into a payslip always matches what that page shows.
+  const [loanByEmp, setLoanByEmp] = useState({});
+
+  useEffect(() => {
+    setPage(1);
+  }, [viewYear, viewMonth, debouncedSearch]);
+
   useEffect(() => {
     let cancelled = false;
-    setDataLoading(true); setAttAll([]);
+    setDataLoading(true);
     const run = async () => {
       try {
-        const [prRes, attRes] = await Promise.all([
+        const params = new URLSearchParams({
+          year: String(viewYear), month: String(viewMonth + 1),
+          page: String(page), page_size: String(PAGE_SIZE),
+        });
+        if (debouncedSearch) params.set("search", debouncedSearch);
+
+        const [prRes, compRes] = await Promise.all([
           apiFetch(`${API}/payroll/`),
-          apiFetch(`${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&page_size=10000`),
+          apiFetch(`${API}/payroll/computed/?${params.toString()}`),
         ]);
         if (cancelled) return;
-        const [prData, attData] = await Promise.all([
-          prRes.ok  ? prRes.json()  : [],
-          attRes.ok ? attRes.json() : [],
-        ]);
+        const prData   = prRes.ok ? await prRes.json() : [];
+        const compData = compRes.ok ? await compRes.json() : null;
         if (cancelled) return;
-        setPayrolls(Array.isArray(prData)  ? prData  : prData.results  || []);
-        setAttAll(  Array.isArray(attData) ? attData : attData.results || []);
+        setPayrolls(Array.isArray(prData) ? prData : prData.results || []);
+
+        const ids = (compData?.results || []).map(r => r.employee_id);
+        setPageEmployeeIds(ids);
+        setPageMeta({ count: compData?.count || 0, total_pages: compData?.total_pages || 1 });
+
+        const loanMap = {};
+        (compData?.results || []).forEach(r => {
+          loanMap[r.employee_id] = { amount: r.loan_deduction || 0, items: r.loan_items || [] };
+        });
+        setLoanByEmp(loanMap);
+
+        // Attendance for just this page's employees — not the whole org.
+        if (ids.length > 0) {
+          const attRes = await apiFetch(
+            `${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&employee_ids=${ids.join(",")}&page_size=5000`
+          );
+          if (cancelled) return;
+          const attData = attRes.ok ? await attRes.json() : [];
+          setAttAll(Array.isArray(attData) ? attData : attData.results || []);
+        } else {
+          setAttAll([]);
+        }
       } catch(e) {
         if (!cancelled) console.error("PayslipsPage:", e);
       } finally {
@@ -964,7 +1046,7 @@ export default function HRPayslipsPage({ showToast }) {
     };
     run();
     return () => { cancelled = true; };
-  }, [monthStart, monthEnd]);
+  }, [monthStart, monthEnd, viewYear, viewMonth, page, debouncedSearch]);
 
   useEffect(() => {
     if (!ctxEmployees) return;
@@ -996,45 +1078,82 @@ export default function HRPayslipsPage({ showToast }) {
     return m;
   }, [payrolls]);
 
-  const departments = ctxDepartments || [];
-
-  // How many days each employee has on record for the viewed month —
-  // used below so inactive employees only show up when they actually
-  // worked some of that month.
-  const attendanceCountMap = useMemo(() => {
+  // Index attendance by employee once, instead of re-scanning the whole
+  // array for every employee on every render.
+  const attByEmp = useMemo(() => {
     const m = {};
     attAll.forEach(r => {
-      if (!["present", "late", "half_day"].includes(r.status)) return;
-      const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
-      m[empId] = (m[empId] || 0) + (r.status === "half_day" ? 0.5 : 1);
+      const eid = typeof r.employee === "object" ? r.employee.id : r.employee;
+      (m[eid] || (m[eid] = [])).push(r);
     });
     return m;
   }, [attAll]);
 
-  const employees = useMemo(() => {
-    if (!ctxEmployees) return [];
-    return ctxEmployees.map(emp => ({
+  // The current page's full employee records, in the order the backend
+  // returned them, enriched with department_name like before.
+  const filtered = useMemo(() => {
+    if (!ctxEmployees || pageEmployeeIds.length === 0) return [];
+    const byId = {};
+    ctxEmployees.forEach(e => { byId[e.id] = e; });
+    return pageEmployeeIds
+      .map(id => byId[id])
+      .filter(Boolean)
+      .map(emp => ({
+        ...emp,
+        department_name: emp.department_name || departments.find(d => d.id === emp.department)?.name || "—",
+      }));
+  }, [ctxEmployees, pageEmployeeIds, departments]);
+
+  // ── "Download All" — gathers every filtered employee across ALL pages,
+  // not just the one currently on screen, since that's the whole point of
+  // a bulk export. This is a one-off, user-initiated action (already shows
+  // a "Generating…" overlay), so it's fine for it to do more work than a
+  // normal page load.
+  const fetchAllFilteredForDownload = useCallback(async () => {
+    const EXPORT_PAGE_SIZE = 200;
+    let allIds = [];
+    let loanMap = {};
+    let p = 1;
+    while (true) {
+      const params = new URLSearchParams({
+        year: String(viewYear), month: String(viewMonth + 1),
+        page: String(p), page_size: String(EXPORT_PAGE_SIZE),
+      });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      const res = await apiFetch(`${API}/payroll/computed/?${params.toString()}`);
+      if (!res.ok) break;
+      const data = await res.json();
+      (data.results || []).forEach(r => {
+        allIds.push(r.employee_id);
+        loanMap[r.employee_id] = { amount: r.loan_deduction || 0, items: r.loan_items || [] };
+      });
+      if (p >= (data.total_pages || 1)) break;
+      p += 1;
+    }
+    if (allIds.length === 0) return { employees: [], attendance: [], loanByEmp: {} };
+
+    const byId = {};
+    (ctxEmployees || []).forEach(e => { byId[e.id] = e; });
+    const employeesForExport = allIds.map(id => byId[id]).filter(Boolean).map(emp => ({
       ...emp,
       department_name: emp.department_name || departments.find(d => d.id === emp.department)?.name || "—",
     }));
-  }, [ctxEmployees, departments]);
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    const viewedMonthEnd = new Date(viewYear, viewMonth + 1, 0);
-    return employees.filter(emp => {
-      if (emp.date_joined) {
-        const [jY, jM, jD] = emp.date_joined.split("-").map(Number);
-        if (new Date(jY, jM - 1, jD) > viewedMonthEnd) return false;
+    // Fetch attendance in chunks to keep each request's URL a sane length.
+    const CHUNK = 150;
+    let attendance = [];
+    for (let i = 0; i < allIds.length; i += CHUNK) {
+      const chunk = allIds.slice(i, i + CHUNK);
+      const res = await apiFetch(
+        `${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&employee_ids=${chunk.join(",")}&page_size=5000`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        attendance = attendance.concat(Array.isArray(data) ? data : data.results || []);
       }
-      const isInactive = emp.status && emp.status !== "employed";
-      if (isInactive && !(attendanceCountMap[emp.id] > 0)) return false;
-      const name  = (emp.full_name || [emp.first_name, emp.last_name].filter(Boolean).join(" ")).toLowerCase();
-      const dept  = (emp.department_name || "").toLowerCase();
-      const title = (emp.job_title || emp.position || "").toLowerCase();
-      return !q || name.includes(q) || dept.includes(q) || title.includes(q);
-    });
-  }, [employees, search, viewYear, viewMonth, attendanceCountMap]);
+    }
+    return { employees: employeesForExport, attendance, loanByEmp: loanMap };
+  }, [viewYear, viewMonth, debouncedSearch, ctxEmployees, departments, monthStart, monthEnd]);
 
   const prevMonth = () => {
     if (viewMonth === 0) { setViewYear(y => y-1); setViewMonth(11); }
@@ -1056,10 +1175,11 @@ export default function HRPayslipsPage({ showToast }) {
       attAll,
       payrollRecord: payrollMap[emp.id],
       edits: payrollEdits[emp.id] || {},
+      loan: loanByEmp[emp.id] || { amount: 0, items: [] },
       currency,
       zigRate,
     });
-  }, [payrollMap, payrollEdits, attAll, viewYear, viewMonth, currency, zigRate]);
+  }, [payrollMap, payrollEdits, loanByEmp, attAll, viewYear, viewMonth, currency, zigRate]);
 
   const handleDownloadOne = useCallback((emp) => {
     setGenerating(true);
@@ -1076,11 +1196,25 @@ export default function HRPayslipsPage({ showToast }) {
   }, [buildHTML, viewYear, viewMonth]);
 
   const handleDownloadAll = useCallback(() => {
-    if (filtered.length === 0) return;
+    if (pageMeta.count === 0) return;
     setGenerating(true);
     (async () => {
       try {
-        const html     = filtered.map(emp => buildHTML(emp)).join("\n");
+        // Gathers every employee matching the current search across ALL
+        // pages (not just what's on screen) plus their attendance, so the
+        // bulk download still covers everything the count badge promises.
+        const { employees: allEmps, attendance: allAtt, loanByEmp: allLoans } = await fetchAllFilteredForDownload();
+        const html = allEmps.map(emp => buildPayslipHTMLString({
+          emp,
+          year: viewYear,
+          month: viewMonth,
+          attAll: allAtt,
+          payrollRecord: payrollMap[emp.id],
+          edits: payrollEdits[emp.id] || {},
+          loan: allLoans[emp.id] || { amount: 0, items: [] },
+          currency,
+          zigRate,
+        })).join("\n");
         const monthStr = new Date(viewYear, viewMonth, 1).toLocaleString("en-US",{month:"long",year:"numeric"});
         await generateAndDownloadPDF(html, `Payslips_${monthStr}.pdf`);
       } catch(err) {
@@ -1088,7 +1222,7 @@ export default function HRPayslipsPage({ showToast }) {
         alert("PDF generation failed. Please try again.");
       } finally { setGenerating(false); }
     })();
-  }, [filtered, buildHTML, viewYear, viewMonth]);
+  }, [pageMeta.count, fetchAllFilteredForDownload, payrollMap, payrollEdits, viewYear, viewMonth, currency, zigRate]);
 
   const loading = ctxLoading?.employees || dataLoading || !ctxEmployees;
 
@@ -1114,7 +1248,7 @@ export default function HRPayslipsPage({ showToast }) {
               Payslips
             </h1>
             <div style={{ fontSize: 12, color: T.faint, marginTop: 3, fontFamily: "'DM Sans',sans-serif" }}>
-              {monthLabel(viewYear, viewMonth)} · {filtered.length} employee{filtered.length !== 1 ? "s" : ""}
+              {monthLabel(viewYear, viewMonth)} · {pageMeta.count} employee{pageMeta.count !== 1 ? "s" : ""} · page {page} of {pageMeta.total_pages}
             </div>
           </div>
 
@@ -1193,22 +1327,22 @@ export default function HRPayslipsPage({ showToast }) {
             {/* Download all */}
             <button
               onClick={handleDownloadAll}
-              disabled={loading || generating || filtered.length === 0}
+              disabled={loading || generating || pageMeta.count === 0}
               style={{
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "9px 18px", borderRadius: 10,
                 background: `linear-gradient(135deg,${T.navy},${T.navyMid})`,
                 border: "none", color: "#fff", fontSize: 13, fontWeight: 700,
                 fontFamily: "'DM Sans',sans-serif",
-                cursor: loading || generating || filtered.length === 0 ? "not-allowed" : "pointer",
-                opacity: loading || generating || filtered.length === 0 ? 0.5 : 1,
+                cursor: loading || generating || pageMeta.count === 0 ? "not-allowed" : "pointer",
+                opacity: loading || generating || pageMeta.count === 0 ? 0.5 : 1,
                 boxShadow: "0 2px 8px rgba(10,42,94,0.2)",
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
-              {generating ? "Generating…" : `Download All (${filtered.length})`}
+              {generating ? "Generating…" : `Download All (${pageMeta.count})`}
             </button>
           </div>
         </div>
@@ -1234,10 +1368,8 @@ export default function HRPayslipsPage({ showToast }) {
         {!loading && filtered.map((emp) => {
           const payRec     = payrollMap[emp.id];
           const edits      = payrollEdits[emp.id] || {};
-          const empAttRecs = attAll.filter(r => {
-            const eid = typeof r.employee === "object" ? r.employee.id : r.employee;
-            return eid === emp.id;
-          });
+          const loan       = loanByEmp[emp.id] || { amount: 0, items: [] };
+          const empAttRecs = attByEmp[emp.id] || [];
           const empName = emp.full_name || [emp.first_name, emp.last_name].filter(Boolean).join(" ") || "—";
 
           return (
@@ -1299,12 +1431,50 @@ export default function HRPayslipsPage({ showToast }) {
                 attendanceRecs={empAttRecs}
                 payrollRecord={payRec}
                 edits={edits}
+                loan={loan}
                 currency={currency}
                 zigRate={zigRate}
               />
             </div>
           );
         })}
+
+        {/* ── Pagination ── */}
+        {!loading && pageMeta.total_pages > 1 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "8px 0 16px" }}>
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              style={{
+                padding: "8px 16px", borderRadius: 9, border: `1.5px solid ${T.line}`,
+                background: page <= 1 ? "#f8fafc" : "#fff",
+                color: page <= 1 ? T.faint : T.navy,
+                fontSize: 12.5, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+                cursor: page <= 1 ? "not-allowed" : "pointer",
+              }}
+            >
+              ← Previous
+            </button>
+            <span style={{ fontSize: 12, color: T.muted, fontFamily: "'DM Sans',sans-serif" }}>
+              Page {page} of {pageMeta.total_pages}
+            </span>
+            <button
+              type="button"
+              disabled={page >= pageMeta.total_pages}
+              onClick={() => setPage(p => Math.min(pageMeta.total_pages, p + 1))}
+              style={{
+                padding: "8px 16px", borderRadius: 9, border: `1.5px solid ${T.line}`,
+                background: page >= pageMeta.total_pages ? "#f8fafc" : "#fff",
+                color: page >= pageMeta.total_pages ? T.faint : T.navy,
+                fontSize: 12.5, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+                cursor: page >= pageMeta.total_pages ? "not-allowed" : "pointer",
+              }}
+            >
+              Next →
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── ZiG rate modal ── */}

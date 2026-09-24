@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.core.cache import cache
 from core.permissions import CanViewEmployees, CanEditEmployees, IsHRM, IsHR
+from core.cache_utils import bust_cache_pattern
 from .models import Department, Site, Employee, AcademicQualification, EmployeeStatusLog
 from .serializers import (
     DepartmentSerializer, SiteSerializer, EmployeeSerializer,
@@ -147,7 +148,7 @@ class EmployeeListCreateView(generics.ListCreateAPIView):
             )
         response = super().create(request, *args, **kwargs)
         # Bust all employee list caches on write
-        cache.delete_pattern(f'{EMPLOYEE_LIST_KEY}:*')
+        bust_cache_pattern(f'{EMPLOYEE_LIST_KEY}:*')
         return response
 
 
@@ -168,7 +169,7 @@ class EmployeeDetailView(generics.RetrieveUpdateDestroyAPIView):
                 status=status.HTTP_403_FORBIDDEN
             )
         response = super().update(request, *args, **kwargs)
-        cache.delete_pattern(f'{EMPLOYEE_LIST_KEY}:*')
+        bust_cache_pattern(f'{EMPLOYEE_LIST_KEY}:*')
         return response
 
     def destroy(self, request, *args, **kwargs):
@@ -178,7 +179,7 @@ class EmployeeDetailView(generics.RetrieveUpdateDestroyAPIView):
                 status=status.HTTP_403_FORBIDDEN
             )
         response = super().destroy(request, *args, **kwargs)
-        cache.delete_pattern(f'{EMPLOYEE_LIST_KEY}:*')
+        bust_cache_pattern(f'{EMPLOYEE_LIST_KEY}:*')
         return response
 
 
@@ -210,7 +211,7 @@ class EmployeeStatusChangeView(APIView):
             employee.status_changed_at = timezone.now()
             employee.save()
 
-            cache.delete_pattern(f'{EMPLOYEE_LIST_KEY}:*')
+            bust_cache_pattern(f'{EMPLOYEE_LIST_KEY}:*')
             return Response({'message': f'Status updated to {new_status}.'}, status=status.HTTP_200_OK)
 
         except Employee.DoesNotExist:
@@ -422,7 +423,7 @@ class EmployeeBulkImportView(APIView):
                 site_counts[site_key] = site_counts.get(site_key, 0) + 1
 
         if commit and created_count:
-            cache.delete_pattern(f'{EMPLOYEE_LIST_KEY}:*')
+            bust_cache_pattern(f'{EMPLOYEE_LIST_KEY}:*')
         if commit and created_sites:
             cache.delete(SITE_LIST_KEY)
         if commit and created_departments:

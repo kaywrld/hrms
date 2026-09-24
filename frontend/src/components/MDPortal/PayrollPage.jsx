@@ -547,6 +547,19 @@ export default function PayrollPage() {
     return list;
   }, [allRows, search, deptFilter]);
 
+  // Rendering a full detailed row for every employee at once (table AND
+  // mobile cards) is the "load 5000 rows at once" cost on this page — the
+  // totals below still reflect every filtered employee, only the on-screen
+  // list is paged.
+  const MD_PAGE_SIZE = 50;
+  const [mdPage, setMdPage] = useState(1);
+  useEffect(() => { setMdPage(1); }, [search, deptFilter, viewYear, viewMonth]);
+  const pageRows = useMemo(
+    () => rows.slice((mdPage - 1) * MD_PAGE_SIZE, mdPage * MD_PAGE_SIZE),
+    [rows, mdPage]
+  );
+  const mdTotalPages = Math.max(1, Math.ceil(rows.length / MD_PAGE_SIZE));
+
   const totalPayableMonth = useMemo(() => allRows.reduce((s,r) => s + r.net, 0), [allRows]);
   const totalDeductionsMonth = useMemo(() => allRows.reduce((s,r) => s + r.deduction, 0), [allRows]);
 
@@ -987,7 +1000,7 @@ export default function PayrollPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map(({ emp, pr, isDaily, basic, dailyRate, attRec, deduction, net }) => {
+                    {pageRows.map(({ emp, pr, isDaily, basic, dailyRate, attRec, deduction, net }) => {
                       const name = emp.full_name || [emp.first_name,emp.last_name].filter(Boolean).join(" ") || "—";
                       const denom = isDaily ? daysInViewedMonth : wdInMonth;
                       const pct = denom > 0 ? attRec.present / denom : 0;
@@ -1076,7 +1089,7 @@ export default function PayrollPage() {
 
               {/* ── Mobile card list (<640px) ───────────────────────────── */}
               <div className="pr-mobile-list">
-                {rows.map(({ emp, isDaily, attRec, basic, dailyRate, deduction, net }) => {
+                {pageRows.map(({ emp, isDaily, attRec, basic, dailyRate, deduction, net }) => {
                   const name = emp.full_name || [emp.first_name,emp.last_name].filter(Boolean).join(" ") || "—";
                   const denom = isDaily ? daysInViewedMonth : wdInMonth;
                   const pct = denom > 0 ? attRec.present / denom : 0;
@@ -1159,6 +1172,31 @@ export default function PayrollPage() {
                 {rows.length} employee{rows.length!==1?"s":""}{hasFilters&&allRows.length!==rows.length?` (filtered from ${allRows.length})`:""}
                 {" · tap any row to view salary history"}
               </div>
+
+              {/* Pagination */}
+              {mdTotalPages > 1 && (
+                <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"12px 14px",borderTop:"1px solid #f1f5f9"}}>
+                  <button
+                    type="button"
+                    disabled={mdPage <= 1}
+                    onClick={() => setMdPage(p => Math.max(1, p - 1))}
+                    style={{padding:"7px 14px",borderRadius:8,border:`1.5px solid ${C.border}`,background:mdPage<=1?"#f8fafc":"#fff",color:mdPage<=1?C.dim:C.navy,fontSize:12.5,fontWeight:600,fontFamily:"'DM Sans',sans-serif",cursor:mdPage<=1?"not-allowed":"pointer"}}
+                  >
+                    ← Previous
+                  </button>
+                  <span style={{fontSize:12,color:C.muted,fontFamily:"'DM Sans',sans-serif"}}>
+                    Page {mdPage} of {mdTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={mdPage >= mdTotalPages}
+                    onClick={() => setMdPage(p => Math.min(mdTotalPages, p + 1))}
+                    style={{padding:"7px 14px",borderRadius:8,border:`1.5px solid ${C.border}`,background:mdPage>=mdTotalPages?"#f8fafc":"#fff",color:mdPage>=mdTotalPages?C.dim:C.navy,fontSize:12.5,fontWeight:600,fontFamily:"'DM Sans',sans-serif",cursor:mdPage>=mdTotalPages?"not-allowed":"pointer"}}
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
