@@ -114,6 +114,7 @@ class PayrollByEmployeeView(generics.RetrieveUpdateAPIView):
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user.username)
 
+
 class PayrollAdjustmentListCreateView(generics.ListCreateAPIView):
     """
     GET  /api/payroll-adjustments/?year=2026&month=7  — that month's adjustments
@@ -124,7 +125,7 @@ class PayrollAdjustmentListCreateView(generics.ListCreateAPIView):
     serializer_class   = PayrollAdjustmentSerializer
 
     def get_queryset(self):
-        qs    = PayrollAdjustment.objects.all()
+        qs    = PayrollAdjustment.objects.select_related('employee', 'employee__department')
         year  = self.request.query_params.get('year')
         month = self.request.query_params.get('month')
         if year:  qs = qs.filter(year=year)
@@ -138,16 +139,50 @@ class PayrollAdjustmentListCreateView(generics.ListCreateAPIView):
         if not (employee_id and year and month):
             return Response({'error': 'employee, year and month are required'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Upsert — but a field the caller didn't send should keep its current
+        # value, not silently reset to 0. Without this, adding a bonus here
+        # (which only sends `bonus`) would have wiped out a deduction already
+        # on file for that employee/month, and vice versa.
+        existing = PayrollAdjustment.objects.filter(employee_id=employee_id, year=year, month=month).first()
+
+        def _field(name, default):
+            if name in request.data:
+                return request.data.get(name) or default
+            return getattr(existing, name) if existing else default
+
         obj, _ = PayrollAdjustment.objects.update_or_create(
             employee_id=employee_id, year=year, month=month,
             defaults={
-                'deduction':        request.data.get('deduction', 0) or 0,
-                'deduction_reason': request.data.get('deduction_reason', ''),
-                'bonus':            request.data.get('bonus', 0) or 0,
+                'deduction':        _field('deduction', 0),
+                'deduction_reason': _field('deduction_reason', ''),
+                'bonus':            _field('bonus', 0),
                 'updated_by':       request.user.username,
             }
         )
         return Response(self.get_serializer(obj).data, status=status.HTTP_200_OK)
+
+
+class PayrollAdjustmentDetailView(generics.RetrieveUpdateAPIView):
+    """
+    GET/PATCH /api/payroll/payroll-adjustments/<pk>/
+    Used to clear just one side of an adjustment (e.g. zero out the
+    deduction while leaving that month's bonus untouched, or vice versa)
+    without the all-or-nothing upsert behaviour of the list/create endpoint.
+    """
+    permission_classes = (IsAuthenticated,)
+    serializer_class    = PayrollAdjustmentSerializer
+    queryset             = PayrollAdjustment.objects.select_related('employee', 'employee__department')
+
+    def update(self, request, *args, **kwargs):
+        if request.user.role not in ('HRM', 'HOD_ACCOUNTS'):
+            return Response(
+                {'error': 'You do not have permission to edit payroll adjustments.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user.username)
 
 
 class LongTermDeductionListCreateView(generics.ListCreateAPIView):
@@ -326,6 +361,7 @@ class PayrollComputedListView(views.APIView):
                 'department_name': emp.department.name if emp.department_id else '—',
                 'site': emp.site_id,
                 'site_name': emp.site.name if emp.site_id else '—',
+                'gender': emp.gender or '',
                 'status': emp.status,
                 'payroll_id': payroll.id if payroll else None,
                 'currency': payroll.currency if payroll else 'USD',

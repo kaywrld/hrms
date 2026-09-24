@@ -25,10 +25,19 @@ class PayrollSerializer(serializers.ModelSerializer):
         return data
 
 class PayrollAdjustmentSerializer(serializers.ModelSerializer):
+    employee_name    = serializers.SerializerMethodField()
+    department_name  = serializers.SerializerMethodField()
+
     class Meta:
         model  = PayrollAdjustment
         fields = '__all__'
         read_only_fields = ('updated_at', 'updated_by')
+
+    def get_employee_name(self, obj):
+        return f"{obj.employee.first_name} {obj.employee.last_name}"
+
+    def get_department_name(self, obj):
+        return obj.employee.department.name if obj.employee.department_id else '—'
 
 
 class LongTermDeductionSerializer(serializers.ModelSerializer):

@@ -12,6 +12,7 @@ import HREmployeesPage   from "../components/HRPortal/EmployeesPage";
 import HRPayrollPage     from "../components/HRPortal/PayrollPage";
 import HRLongTermDeductionsPage from "../components/HRPortal/LongTermDeductionsPage";
 import HRPayslipsPage    from "../components/HRPortal/PayslipsPage";
+import HRReportsPage     from "../components/HRPortal/ReportsPage";
 import HRAttendancePage  from "../components/HRPortal/AttendancePage";
 import HRAdminsPage     from "../components/HRPortal/HRAdminsPage";
 import HRSitesDepartmentsPage from "../components/HRPortal/SitesDepartmentsPage";
@@ -325,6 +326,16 @@ const NAV_ITEMS = [
         <line x1="16" y1="13" x2="8" y2="13"/>
         <line x1="16" y1="17" x2="8" y2="17"/>
         <line x1="10" y1="9" x2="8" y2="9"/>
+      </svg>
+    ),
+  },
+  {
+    key: "reports", label: "Reports",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10" />
+        <line x1="12" y1="20" x2="12" y2="4" />
+        <line x1="6" y1="20" x2="6" y2="14" />
       </svg>
     ),
   },
@@ -2279,6 +2290,9 @@ function HRPortalInner() {
       );
       case "payslips":   return (
         <HRPayslipsPage showToast={showToast} />
+      );
+      case "reports":    return (
+        <HRReportsPage showToast={showToast} />
       );
       case "profile":    return (
         <ProfilePage
