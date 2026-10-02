@@ -1,4 +1,4 @@
-const CACHE_NAME    = 'jecca-hrms-v3';
+const CACHE_NAME    = 'jecca-hrms-v4';
 const STATIC_ASSETS = [
   '/bg.jpeg',
   '/logo.jpeg',
@@ -27,8 +27,9 @@ function getApiTimeout(url) {
   const pageSize = Number(url.searchParams.get('page_size') || 0);
   const isWideDateRange = url.searchParams.has('date_after') && url.searchParams.has('date_before');
   const isExport = url.pathname.endsWith('/export/') || url.searchParams.has('export');
+  const isRegister = url.pathname.startsWith('/api/attendance/register');
 
-  if (pageSize >= 1000 || isWideDateRange || isExport) {
+  if (pageSize >= 1000 || isWideDateRange || isExport || isRegister) {
     return LONG_API_TIMEOUT_MS;
   }
   return DEFAULT_API_TIMEOUT_MS;
@@ -95,8 +96,14 @@ self.addEventListener('fetch', event => {
     event.respondWith(
       withTimeout(fetch(request), timeoutMs)
         .then(response => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+          // Never write attendance responses into Cache Storage: they're never
+          // read back (see noStaleFallback below), and the monthly register is a
+          // multi-MB JSON body — cloning and storing it on every load was pure
+          // overhead on the exact page that needs to be fast.
+          if (!noStaleFallback) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+          }
           return response;
         })
         .catch(async () => {

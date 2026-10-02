@@ -1,7 +1,7 @@
 // src/components/HRPortal/AttendancePage.jsx
 // Attendance page — daily register with date-filtered stats + inline employee history view
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, memo } from "react";
 import ExcelJS from "exceljs";
 import { apiFetch } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
@@ -880,6 +880,99 @@ function getZwPublicHolidays(year, month) {
   return holidays;
 }
 
+// ── One employee row of the Mark Register grid ──────────────────────────────
+// Memoised so ticking a single cell re-renders ONE row instead of every cell
+// in the table (200 employees x 31 days = 6,200 cells before). The custom
+// comparator ignores the whole `marks` Set except for this row's own days.
+const ymd = (year, month, d) =>
+  `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+
+function registerRowPropsEqual(a, b) {
+  if (a.emp !== b.emp || a.striped !== b.striped || a.empExisting !== b.empExisting ||
+      a.site !== b.site || a.sites !== b.sites || a.dayList !== b.dayList ||
+      a.year !== b.year || a.month !== b.month || a.holidays !== b.holidays ||
+      a.futureUnlocked !== b.futureUnlocked || a.todayStr !== b.todayStr) return false;
+  if (a.marks === b.marks) return true;
+  for (let i = 0; i < a.dayList.length; i++) {
+    const key = `${a.emp.id}:${ymd(a.year, a.month, a.dayList[i])}`;
+    if (a.marks.has(key) !== b.marks.has(key)) return false;
+  }
+  return true;
+}
+
+const RegisterGridRow = memo(function RegisterGridRow({
+  emp, striped, empExisting, site, sites, dayList, year, month, holidays,
+  futureUnlocked, todayStr, marks, onToggleCell, onMarkRow, onSiteChange,
+}) {
+  const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
+  const rowBg = striped ? "#fafcff" : "#fff";
+  return (
+    <tr style={{ borderBottom: "1px solid #f1f5f9", background: rowBg }}>
+      <td onClick={() => onMarkRow(emp.id)} className="reg-name-td"
+        title="Click to mark/unmark all unmarked working days (Mon–Fri, excl. ZW public holidays) this month Present for this employee — click individual weekend/holiday cells to add those manually"
+        style={{ position: "sticky", left: 0, background: rowBg, padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap", zIndex: 1 }}>
+        <span style={{ fontWeight: 600, color: "#0a2a5e", fontSize: 12.5 }}>{fullName}</span>
+        {emp.department_name && <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: 6 }}>· {emp.department_name}</span>}
+      </td>
+
+      {/* Site — defaults to this employee's assigned Site, but can be
+          changed here for this register only (e.g. working
+          temporarily elsewhere); their permanent assignment is untouched. */}
+      <td style={{ padding: "6px 10px", verticalAlign: "middle" }} onClick={e => e.stopPropagation()}>
+        {(() => {
+          const defaultSite = emp.site_name || (sites || []).find(s => s.id === emp.site)?.name || "";
+          const current = site || "";
+          const isTemporary = defaultSite && current && current !== defaultSite;
+          return (
+            <div>
+              <select
+                value={current}
+                onChange={ev => onSiteChange(emp.id, ev.target.value)}
+                title={defaultSite ? `Default site: ${defaultSite}` : "No default site assigned to this employee"}
+                style={{ width: "100%", boxSizing: "border-box", padding: "6px 9px", border: "1.5px solid " + (isTemporary ? "#d97706" : "#e2e8f0"), borderRadius: 7, fontSize: 12, fontFamily: "'DM Sans',sans-serif", color: "#334155", outline: "none", background: isTemporary ? "#fffbeb" : "#fafbff", cursor: "pointer" }}>
+                <option value="">— Select site —</option>
+                {(sites || []).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+              {isTemporary && (
+                <div style={{ fontSize: 10, color: "#b45309", marginTop: 3 }}>
+                  Temporary — default: {defaultSite}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </td>
+
+      {dayList.map(d => {
+        const ds = ymd(year, month, d);
+        const status = empExisting?.[ds]?.status;
+        const selected = marks.has(`${emp.id}:${ds}`);
+        const future = !futureUnlocked && ds > todayStr;
+        const clickable = !status && !future;
+        const holidayCell = !status && !future && holidays.has(ds);
+        const cfg = status ? (STATUS_CONFIG[status] || { color: "#64748b", bg: "#f1f5f9" }) : null;
+        return (
+          <td key={d} onClick={() => onToggleCell(emp.id, d)}
+            title={status ? `${STATUS_CONFIG[status]?.label || status} — already on record` : future ? "Future date" : holidayCell ? "Public holiday — click to mark Present anyway" : "Click to mark Present"}
+            style={{ padding: 4, textAlign: "center", cursor: clickable ? "pointer" : "default" }}>
+            <div style={{
+              width: 26, height: 26, margin: "0 auto", borderRadius: 6,
+              background: selected ? "#16a34a" : status ? cfg.bg : future ? "#fafbff" : holidayCell ? "#fef3c7" : "#fff",
+              border: selected ? "2px solid #16a34a" : status ? `1.5px solid ${cfg.color}` : future ? "1px solid #f1f5f9" : holidayCell ? "1.5px dashed #d97706" : "2px solid #94a3b8",
+              boxShadow: selected ? "0 2px 6px rgba(22,163,74,0.35)" : "none",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.1s",
+            }}>
+              {selected && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+              {!selected && status && <span style={{ fontSize: 9.5, fontWeight: 800, color: cfg.color }}>{status.charAt(0).toUpperCase()}</span>}
+            </div>
+          </td>
+        );
+      })}
+    </tr>
+  );
+}, registerRowPropsEqual);
+
 // ── Bulk "Mark Register" view ───────────────────────────────────────────────
 // Lets HR mark Present for any employee, across any department, for any
 // number of days at once — click cells to select, then Save Register.
@@ -904,7 +997,8 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   // ── Per-employee "site" for the month — defaults to the employee's
   // assigned Site, but can be overridden per register (e.g. temporarily
   // working elsewhere) without changing their permanent assignment.
-  const [siteDraft, setSiteDraft] = useState({});        // { empId: "Masons" }
+  const [siteDraft, setSiteDraft] = useState({});        // { empId: "Masons" } — manual edits only
+  const [serverSites, setServerSites] = useState({});   // { empId: "Masons" } — most-used site this month, computed by the backend
 
   // Unmarking an already-saved day needs a confirmation before it fires,
   // since it's easy to misclick on a day that's already on record.
@@ -923,8 +1017,6 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   const [dayCursor, setDayCursor] = useState(todayObj.getDate());
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
-  const monthEnd   = `${year}-${String(month + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
 
   // If the month changes to one with fewer days (or the cursor is stale
   // from a previous month), clamp it back into range.
@@ -932,59 +1024,48 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
     setDayCursor(d => Math.min(Math.max(d, 1), daysInMonth));
   }, [daysInMonth]);
 
-  // Fetch existing records for the whole month whenever it changes
+  // Fetch the month's register from the backend whenever the month changes.
+  // The backend returns just { employee: { date: {id, status} } } plus each
+  // employee's most-used site — no full records to download and re-aggregate
+  // here. It deliberately does NOT depend on `employees`/`sites`, so a context
+  // refresh no longer re-downloads the whole month.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setMarks(new Set());
-    apiFetch(`${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&page_size=8000`)
-      .then(r => r.ok ? r.json() : [])
+    apiFetch(`${API}/attendance/register/?year=${year}&month=${month + 1}`)
+      .then(r => { if (!r.ok) throw new Error("bad status"); return r.json(); })
       .then(data => {
         if (cancelled) return;
-        const list = Array.isArray(data) ? data : data.results || [];
-        const map = {};
-        list.forEach(r => {
-          const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
-          if (!map[empId]) map[empId] = {};
-          map[empId][r.date] = { status: r.status, id: r.id };
-        });
-        setExisting(map);
-
-        // Prefill each employee's site input with whatever work_location they
-        // were marked at most often this month, so HR only has to type when
-        // it's genuinely unset — never overwrites something already typed.
-        const siteCounts = {};
-        list.forEach(r => {
-          const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
-          const loc = (r.work_location || "").trim();
-          if (!loc) return;
-          if (!siteCounts[empId]) siteCounts[empId] = {};
-          siteCounts[empId][loc] = (siteCounts[empId][loc] || 0) + 1;
-        });
-        setSiteDraft(prev => {
-          const next = { ...prev };
-          // 1. Whatever was actually marked most often this month wins first —
-          //    it reflects a genuine in-month reassignment.
-          Object.entries(siteCounts).forEach(([empId, counts]) => {
-            if (next[empId] !== undefined) return; // don't clobber a manual edit
-            next[empId] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
-          });
-          // 2. Otherwise, fall back to the employee's assigned Site (from the
-          //    Employees page) as the starting point — still just a default
-          //    for this register; changing it here doesn't change their
-          //    permanent assignment.
-          (employees || []).forEach(emp => {
-            if (next[emp.id] !== undefined) return;
-            const defaultSite = emp.site_name || (sites || []).find(s => s.id === emp.site)?.name;
-            if (defaultSite) next[emp.id] = defaultSite;
-          });
-          return next;
-        });
+        setExisting(data.records || {});
+        setServerSites(data.site_defaults || {});
       })
-      .catch(() => showToast?.("Failed to load existing attendance.", "err"))
+      .catch(() => {
+        if (cancelled) return;
+        setExisting({});
+        setServerSites({});
+        showToast?.("Failed to load existing attendance.", "err");
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [monthStart, monthEnd, employees, sites]);
+  }, [year, month]);
+
+  // Site shown for each employee. Priority: a manual edit on this screen →
+  // the site they were most often marked at this month → their assigned Site
+  // from the Employees page. (Same order as before, just computed here.)
+  const effectiveSite = useMemo(() => {
+    const out = {};
+    (employees || []).forEach(emp => {
+      if (siteDraft[emp.id] !== undefined) { out[emp.id] = siteDraft[emp.id]; return; }
+      if (serverSites[emp.id]) { out[emp.id] = serverSites[emp.id]; return; }
+      const assigned = emp.site_name || (sites || []).find(s => s.id === emp.site)?.name;
+      if (assigned) out[emp.id] = assigned;
+    });
+    return out;
+  }, [employees, sites, siteDraft, serverSites]);
+
+  const onSiteChange = useCallback(
+    (empId, value) => setSiteDraft(d => ({ ...d, [empId]: value })), []);
 
   const activeEmployees = useMemo(() => (employees || []).filter(e => e.status === "employed"), [employees]);
 
@@ -993,10 +1074,10 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
     const q = search.toLowerCase();
     const matchSearch = !q || fullName.toLowerCase().includes(q) || (emp.job_title || "").toLowerCase().includes(q) || (emp.department_name || "").toLowerCase().includes(q);
     const matchDept = deptFilter === "all" || String(emp.department) === deptFilter;
-    const empSite = siteDraft[emp.id] || "";
+    const empSite = effectiveSite[emp.id] || "";
     const matchSite = siteFilter === "all" || (siteFilter === "unassigned" ? !empSite : empSite === siteFilter);
     return matchSearch && matchDept && matchSite;
-  }), [activeEmployees, search, deptFilter, siteFilter, siteDraft]);
+  }), [activeEmployees, search, deptFilter, siteFilter, effectiveSite]);
 
   const dayList = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth]);
 
@@ -1011,7 +1092,7 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   };
   const cellKey = (empId, d) => `${empId}:${dateStr(d)}`;
 
-  const toggleCell = (empId, d) => {
+  const toggleCellImpl = (empId, d) => {
     // Unmarking an already-saved day is always allowed, even if it's a
     // future date the future-lock would otherwise block — the lock only
     // needs to stop *new* marks from being created ahead of time.
@@ -1059,7 +1140,7 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   // left out and can still be ticked manually on their individual cells.
   // Clicking the name again unmarks whichever of those working days are
   // currently pending (not yet saved), toggling the whole row on/off.
-  const markWholeRow = (empId) => {
+  const markWholeRowImpl = (empId) => {
     const workCells = dayList.filter(d => isWorkDay(d) && !isFutureDay(d) && !existing[empId]?.[dateStr(d)]);
     if (workCells.length === 0) return;
     const allSelected = workCells.every(d => marks.has(cellKey(empId, d)));
@@ -1072,6 +1153,16 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
       return next;
     });
   };
+
+  // Stable identities for the memoised grid rows: they always call the newest
+  // implementation above, but never change identity, so they don't force every
+  // row to re-render on each click.
+  const latestHandlers = useRef({});
+  useEffect(() => {
+    latestHandlers.current = { toggleCell: toggleCellImpl, markWholeRow: markWholeRowImpl };
+  });
+  const toggleCell   = useCallback((...a) => latestHandlers.current.toggleCell(...a), []);
+  const markWholeRow = useCallback((...a) => latestHandlers.current.markWholeRow(...a), []);
 
   // Clicking a day-header column is an explicit, single-day choice — so it
   // marks that day for everyone regardless of whether it's a weekend or
@@ -1115,88 +1206,75 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
   const clearSelection = () => setMarks(new Set());
 
   const handleSave = async () => {
-    if (marks.size === 0) return;
+    if (marks.size === 0 || saving) return;
     setSaving(true);
     const items = Array.from(marks).map(key => {
       const [empId, date] = key.split(":");
-      return { empId, date };
+      return { employee: Number(empId), date, work_location: effectiveSite[empId] || "" };
     });
     setSaveProgress({ done: 0, total: items.length });
 
-    // Update `existing` (and clear `marks`) straight from each POST's own
-    // response as it lands — this is the source of truth for what actually
-    // got saved. It does NOT depend on a follow-up GET succeeding, which
-    // matters because a slow/timed-out GET on shared hosting can otherwise
-    // make a fully-successful save look like it silently failed on screen.
-    let succeeded = 0, failed = 0;
-    const batchSize = 6;
-    for (let i = 0; i < items.length; i += batchSize) {
-      const batch = items.slice(i, i + batchSize);
-      const results = await Promise.all(batch.map(async ({ empId, date }) => {
-        const work_location = siteDraft[empId] || "";
-        try {
-          const res = await apiFetch(`${API}/attendance/`, {
-            method: "POST",
-            body: JSON.stringify({ employee: Number(empId), date, status: "present", shift: null, notes: "", work_location }),
-          });
-          if (!res.ok) return { ok: false, empId, date };
-          const saved = await res.json().catch(() => null);
-          return { ok: true, empId, date, saved };
-        } catch (_) {
-          return { ok: false, empId, date };
-        }
-      }));
-
-      const okResults = results.filter(r => r.ok);
-      if (okResults.length) {
-        setExisting(prev => {
-          const next = { ...prev };
-          okResults.forEach(({ empId, date, saved }) => {
-            next[empId] = {
-              ...(next[empId] || {}),
-              [date]: { status: saved?.status || "present", id: saved?.id },
-            };
-          });
-          return next;
+    // The backend saves a whole batch in one request / one transaction. This
+    // used to be one POST per ticked cell (6 at a time) — hundreds or
+    // thousands of requests for "Mark All Working Days", which was slow AND
+    // tripped the API's 300-requests-per-minute throttle part-way through.
+    // Days already on record are skipped server-side, never overwritten.
+    const CHUNK = 2000;
+    let saved = 0, alreadyMarked = 0, failed = 0, lastError = "";
+    for (let i = 0; i < items.length; i += CHUNK) {
+      const chunk = items.slice(i, i + CHUNK);
+      try {
+        const res = await apiFetch(`${API}/attendance/register/bulk/`, {
+          method: "POST",
+          body: JSON.stringify({ status: "present", records: chunk }),
         });
+        if (!res.ok) {
+          failed += chunk.length;
+          const err = await res.json().catch(() => null);
+          lastError = err?.error || err?.detail || "";
+          continue;
+        }
+        const data = await res.json();
+        const savedRows    = data.saved    || [];
+        const skippedRows  = data.skipped  || [];
+        const rejectedRows = data.rejected || [];
+        const onRecord = [...savedRows, ...skippedRows];
+
+        // Straight from the server's response — no follow-up GET needed.
+        if (onRecord.length) {
+          setExisting(prev => {
+            const next = { ...prev };
+            onRecord.forEach(r => {
+              next[r.employee] = { ...(next[r.employee] || {}), [r.date]: { status: r.status, id: r.id } };
+            });
+            return next;
+          });
+        }
+        // Anything the server answered for leaves the pending selection;
+        // only chunks that never got an answer stay ticked, to retry.
+        const answered = new Set([...onRecord, ...rejectedRows].map(r => `${r.employee}:${r.date}`));
         setMarks(prev => {
           const next = new Set(prev);
-          okResults.forEach(({ empId, date }) => next.delete(cellKey(empId, Number(date.slice(-2)))));
+          answered.forEach(k => next.delete(k));
           return next;
         });
+        saved += savedRows.length;
+        alreadyMarked += skippedRows.length;
+        failed += rejectedRows.length;
+      } catch (_) {
+        failed += chunk.length;
       }
-      results.forEach(r => r.ok ? succeeded++ : failed++);
-      setSaveProgress({ done: Math.min(i + batchSize, items.length), total: items.length });
+      setSaveProgress({ done: Math.min(i + CHUNK, items.length), total: items.length });
     }
-
-    // Best-effort background reconciliation only — picks up anything marked
-    // elsewhere in the meantime. Never allowed to erase the optimistic
-    // updates above: if this GET times out and the service worker hands
-    // back a stale/older snapshot, that stale snapshot is discarded here
-    // rather than overwriting what we already confirmed was saved.
-    try {
-      const res = await apiFetch(`${API}/attendance/?date_after=${monthStart}&date_before=${monthEnd}&page_size=8000`);
-      if (res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : data.results || [];
-        const map = {};
-        list.forEach(r => {
-          const empId = typeof r.employee === "object" ? r.employee.id : r.employee;
-          if (!map[empId]) map[empId] = {};
-          map[empId][r.date] = { status: r.status, id: r.id };
-        });
-        setExisting(prev => ({ ...map, ...Object.fromEntries(
-          Object.entries(prev).map(([empId, recs]) => [empId, { ...(map[empId] || {}), ...recs }])
-        ) }));
-      }
-    } catch (_) { /* non-fatal — optimistic updates above already stand */ }
 
     setSaving(false);
     setSaveProgress(null);
-    showToast?.(failed === 0
-      ? `Marked ${succeeded} attendance record${succeeded === 1 ? "" : "s"} as Present.`
-      : `Saved ${succeeded}, ${failed} failed — they may already be marked.`,
-      failed === 0 ? undefined : "err");
+    if (failed === 0) {
+      showToast?.(`Marked ${saved} attendance record${saved === 1 ? "" : "s"} as Present.` +
+        (alreadyMarked ? ` ${alreadyMarked} ${alreadyMarked === 1 ? "was" : "were"} already on record.` : ""));
+    } else {
+      showToast?.(`Saved ${saved}, ${failed} could not be saved.${lastError ? " " + lastError : ""}`, "err");
+    }
   };
 
   return (
@@ -1363,7 +1441,7 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
               const future = isFutureDay(dayCursor);
               const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
               const defaultSite = emp.site_name || (sites || []).find(s => s.id === emp.site)?.name || "";
-              const current = siteDraft[emp.id] || "";
+              const current = effectiveSite[emp.id] || "";
               const isTemporary = defaultSite && current && current !== defaultSite;
               const cfg = status ? (STATUS_CONFIG[status] || { color: "#64748b", bg: "#f1f5f9" }) : null;
               const locked = future && !status;
@@ -1427,75 +1505,26 @@ function RegisterMarkingView({ employees, departments, sites, onBack, showToast 
               </tr>
             </thead>
             <tbody>
-              {filtered.map((emp, i) => {
-                const fullName = emp.full_name || [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(" ") || "—";
-                const rowBg = i % 2 === 0 ? "#fff" : "#fafcff";
-                return (
-                  <tr key={emp.id} style={{ borderBottom: "1px solid #f1f5f9", background: rowBg }}>
-                    <td onClick={() => markWholeRow(emp.id)} className="reg-name-td"
-                      title="Click to mark/unmark all unmarked working days (Mon–Fri, excl. ZW public holidays) this month Present for this employee — click individual weekend/holiday cells to add those manually"
-                      style={{ position: "sticky", left: 0, background: rowBg, padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap", zIndex: 1 }}>
-                      <span style={{ fontWeight: 600, color: "#0a2a5e", fontSize: 12.5 }}>{fullName}</span>
-                      {emp.department_name && <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: 6 }}>· {emp.department_name}</span>}
-                    </td>
-
-                    {/* Site — defaults to this employee's assigned Site, but can be
-                        changed here for this register only (e.g. working
-                        temporarily elsewhere); their permanent assignment is untouched. */}
-                    <td style={{ padding: "6px 10px", verticalAlign: "middle" }} onClick={e => e.stopPropagation()}>
-                      {(() => {
-                        const defaultSite = emp.site_name || (sites || []).find(s => s.id === emp.site)?.name || "";
-                        const current = siteDraft[emp.id] || "";
-                        const isTemporary = defaultSite && current && current !== defaultSite;
-                        return (
-                          <div>
-                            <select
-                              value={current}
-                              onChange={ev => setSiteDraft(d => ({ ...d, [emp.id]: ev.target.value }))}
-                              title={defaultSite ? `Default site: ${defaultSite}` : "No default site assigned to this employee"}
-                              style={{ width: "100%", boxSizing: "border-box", padding: "6px 9px", border: "1.5px solid " + (isTemporary ? "#d97706" : "#e2e8f0"), borderRadius: 7, fontSize: 12, fontFamily: "'DM Sans',sans-serif", color: "#334155", outline: "none", background: isTemporary ? "#fffbeb" : "#fafbff", cursor: "pointer" }}>
-                              <option value="">— Select site —</option>
-                              {(sites || []).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                            </select>
-                            {isTemporary && (
-                              <div style={{ fontSize: 10, color: "#b45309", marginTop: 3 }}>
-                                Temporary — default: {defaultSite}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </td>
-
-                    {dayList.map(d => {
-                      const ds = dateStr(d);
-                      const status = existing[emp.id]?.[ds]?.status;
-                      const selected = marks.has(cellKey(emp.id, d));
-                      const future = isFutureDay(d);
-                      const clickable = !status && !future;
-                      const holidayCell = !status && !future && isHoliday(d);
-                      const cfg = status ? (STATUS_CONFIG[status] || { color: "#64748b", bg: "#f1f5f9" }) : null;
-                      return (
-                        <td key={d} onClick={() => toggleCell(emp.id, d)}
-                          title={status ? `${STATUS_CONFIG[status]?.label || status} — already on record` : future ? "Future date" : holidayCell ? "Public holiday — click to mark Present anyway" : "Click to mark Present"}
-                          style={{ padding: 4, textAlign: "center", cursor: clickable ? "pointer" : "default" }}>
-                          <div style={{
-                            width: 26, height: 26, margin: "0 auto", borderRadius: 6,
-                            background: selected ? "#16a34a" : status ? cfg.bg : future ? "#fafbff" : holidayCell ? "#fef3c7" : "#fff",
-                            border: selected ? "2px solid #16a34a" : status ? `1.5px solid ${cfg.color}` : future ? "1px solid #f1f5f9" : holidayCell ? "1.5px dashed #d97706" : "2px solid #94a3b8",
-                            boxShadow: selected ? "0 2px 6px rgba(22,163,74,0.35)" : "none",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            transition: "all 0.1s",
-                          }}>
-                            {selected && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                            {!selected && status && <span style={{ fontSize: 9.5, fontWeight: 800, color: cfg.color }}>{status.charAt(0).toUpperCase()}</span>}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
+              {filtered.map((emp, i) => (
+                <RegisterGridRow
+                  key={emp.id}
+                  emp={emp}
+                  striped={i % 2 !== 0}
+                  empExisting={existing[emp.id]}
+                  site={effectiveSite[emp.id]}
+                  sites={sites}
+                  dayList={dayList}
+                  year={year}
+                  month={month}
+                  holidays={holidays}
+                  futureUnlocked={futureUnlocked}
+                  todayStr={todayStr}
+                  marks={marks}
+                  onToggleCell={toggleCell}
+                  onMarkRow={markWholeRow}
+                  onSiteChange={onSiteChange}
+                />
+              ))}
             </tbody>
           </table>
         )}

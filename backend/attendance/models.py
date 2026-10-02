@@ -38,6 +38,10 @@ class AttendanceRecord(models.Model):
 
     class Meta:
         unique_together = ('employee', 'date')  # one record per employee per day
+        # unique_together's index starts with `employee`, so it can't serve
+        # "every record in this date range" queries (daily view, monthly
+        # register, exports). This one can.
+        indexes = [models.Index(fields=['date'], name='attendance_date_idx')]
 
     def __str__(self):
         return f"{self.employee} | {self.date} | {self.status}"

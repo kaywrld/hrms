@@ -46,14 +46,25 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
         return obj.employee.job_title or None
 
     def _get_admin(self, obj):
+        """
+        Look up the AdminUser who marked this record.
+
+        Previously this ran one AdminUser query PER RECORD (the cache lived on
+        the record object, so it never saved anything). A month register is
+        thousands of records, so that was thousands of queries per request.
+        Now every admin is loaded in ONE query the first time it's needed and
+        shared by every record in the response via the serializer context.
+        """
         if not obj.marked_by:
             return None
-        if not hasattr(obj, '_admin_user_cache'):
+        admins = self.context.get('_admin_by_username')
+        if admins is None:
             from accounts.models import AdminUser
-            obj._admin_user_cache = AdminUser.objects.filter(
-                username=obj.marked_by
-            ).select_related('department').first()
-        return obj._admin_user_cache
+            admins = {a.username: a for a in AdminUser.objects.select_related('department')}
+            # `context` is shared with the child serializer of a many=True
+            # list, so this one dict serves the whole response.
+            self.context['_admin_by_username'] = admins
+        return admins.get(obj.marked_by)
 
     def get_marked_by_department(self, obj):
         admin = self._get_admin(obj)
