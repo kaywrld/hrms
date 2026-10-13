@@ -25,6 +25,7 @@ import { useSearchParams } from "react-router-dom";
 import ExcelJS from "exceljs";
 import { apiFetch } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
+import PaymentScheduleModal from "./PaymentScheduleModal";
 
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
@@ -936,6 +937,7 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [payTypeFilter, setPayTypeFilter] = useState("all"); // "all" | "monthly" | "daily"
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const dlRef = useRef();
 
   useEffect(() => {
@@ -1319,6 +1321,30 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
                 <line x1="16" y1="17" x2="8" y2="17"/>
               </svg>
               View Payslips
+            </button>
+
+            {/* ── Bank Payment File (Excel for payment processing) ── */}
+            <button
+              className="pr-toolbar-btn"
+              onClick={() => {
+                if (currency === "ZIG" && !(parseFloat(zigRate) > 0)) { setShowZigModal(true); return; }
+                setShowPaymentModal(true);
+              }}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "9px 16px", borderRadius: 10,
+                border: "1.5px solid #e2e8f0", background: "#fff",
+                fontSize: 13, fontWeight: 600, color: "#475569",
+                fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
+                transition: "border-color 0.15s, color 0.15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#1557b0"; e.currentTarget.style.color = "#1557b0"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.color = "#475569"; }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="5" width="20" height="14" rx="2" /><line x1="2" y1="10" x2="22" y2="10" />
+              </svg>
+              Payment File
             </button>
 
             {/* ── Download ── */}
@@ -1842,6 +1868,25 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
           )}
         </div>
       </div>
+
+      {/* Bank payment file modal */}
+      {showPaymentModal && (
+        <PaymentScheduleModal
+          currency={currency}
+          monthName={new Date(viewYear, viewMonth, 1).toLocaleString("en-GB", { month: "long" })}
+          monthLabel={monthLabel}
+          activeFilters={[
+            debouncedSearch && `search “${debouncedSearch}”`,
+            deptFilter !== "all" && (departments.find(d => String(d.id) === String(deptFilter))?.name || "department"),
+            siteFilter !== "all" && siteName(siteFilter),
+            statusFilter !== "all" && `status: ${statusFilter}`,
+            payTypeFilter !== "all" && (payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"),
+          ].filter(Boolean)}
+          loadRows={buildExportRows}
+          onClose={() => setShowPaymentModal(false)}
+          showToast={showToast}
+        />
+      )}
 
       {/* ZIG rate modal */}
       {showZigModal && (
