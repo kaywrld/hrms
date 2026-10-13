@@ -21,11 +21,11 @@
 //  inline (inline styles otherwise beat any stylesheet, media query or not).
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
 import ExcelJS from "exceljs";
 import { apiFetch } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
 import PaymentScheduleModal from "./PaymentScheduleModal";
+import SplitSalaryModal from "./SplitSalaryModal";
 
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
@@ -874,8 +874,6 @@ function downloadPDF(rows, monthLabel, currency, zigRate) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function HRPayrollPage({ showToast, onManageLoans }) {
-  const [, setSearchParams] = useSearchParams();
-  const goToPayslips = () => setSearchParams({ page: "payslips" }, { replace: false });
 
   // ── Context data ──────────────────────────────────────────────────────────
   const {
@@ -938,6 +936,7 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
   const [payTypeFilter, setPayTypeFilter] = useState("all"); // "all" | "monthly" | "daily"
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showSplitModal, setShowSplitModal] = useState(false);
   const dlRef = useRef();
 
   useEffect(() => {
@@ -1091,6 +1090,8 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
       bonusStr:     edits ? (edits.bonus || "")     : (row.bonus ? String(row.bonus) : ""),
       deductionReason: edits ? (edits.deductionReason || "") : (row.deduction_reason || ""),
       bankName, bankAccount,
+      bankNameUsd: row.bank_name_usd || "", bankAccountUsd: row.bank_account_usd || "",
+      bankNameZig: row.bank_name_zig || "", bankAccountZig: row.bank_account_zig || "",
     };
   }, [payrollEdits, currency]);
 
@@ -1147,6 +1148,8 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
       site: e.siteNameVal,
       bankName: e.bankName,
       bankAccount: e.bankAccount,
+      bankNameUsd: e.bankNameUsd, bankAccountUsd: e.bankAccountUsd,
+      bankNameZig: e.bankNameZig, bankAccountZig: e.bankAccountZig,
       isDaily: e.isDaily,
       daysAttended: e.daysAttended,
       workingDays: e.isDaily ? daysInViewedMonth : workingDays,
@@ -1301,10 +1304,10 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
               )}
             </div>
 
-            {/* ── View Payslips ── */}
+            {/* ── Split Salary (part USD / part ZiG) ── */}
             <button
               className="pr-toolbar-btn"
-              onClick={goToPayslips}
+              onClick={() => setShowSplitModal(true)}
               style={{
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "9px 16px", borderRadius: 10,
@@ -1314,13 +1317,11 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
                 fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
               }}
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
+                <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/>
               </svg>
-              View Payslips
+              Split Salary
             </button>
 
             {/* ── Bank Payment File (Excel for payment processing) ── */}
@@ -1884,6 +1885,26 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
           ].filter(Boolean)}
           loadRows={buildExportRows}
           onClose={() => setShowPaymentModal(false)}
+          showToast={showToast}
+        />
+      )}
+
+      {/* Split salary modal */}
+      {showSplitModal && (
+        <SplitSalaryModal
+          monthName={new Date(viewYear, viewMonth, 1).toLocaleString("en-GB", { month: "long" })}
+          monthLabel={monthLabel}
+          zigRate={zigRate}
+          activeFilters={[
+            debouncedSearch && `search “${debouncedSearch}”`,
+            deptFilter !== "all" && (departments.find(d => String(d.id) === String(deptFilter))?.name || "department"),
+            siteFilter !== "all" && siteName(siteFilter),
+            statusFilter !== "all" && `status: ${statusFilter}`,
+            payTypeFilter !== "all" && (payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"),
+          ].filter(Boolean)}
+          loadRows={buildExportRows}
+          onSaveRate={rate => { setZigRate(rate); saveZigRateForMonth(viewYear, viewMonth, rate); }}
+          onClose={() => setShowSplitModal(false)}
           showToast={showToast}
         />
       )}
