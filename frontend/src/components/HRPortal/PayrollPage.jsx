@@ -1894,6 +1894,7 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
         <SplitSalaryModal
           monthName={new Date(viewYear, viewMonth, 1).toLocaleString("en-GB", { month: "long" })}
           monthLabel={monthLabel}
+          isPastMonth={!isCurrentMonth}
           zigRate={zigRate}
           activeFilters={[
             debouncedSearch && `search “${debouncedSearch}”`,
@@ -1903,7 +1904,10 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
             payTypeFilter !== "all" && (payTypeFilter === "daily" ? "Daily Rate" : "Monthly Salary"),
           ].filter(Boolean)}
           loadRows={buildExportRows}
-          onSaveRate={rate => { setZigRate(rate); saveZigRateForMonth(viewYear, viewMonth, rate); }}
+          onSaveRate={rate => {
+            // never overwrite the saved rate of a past month while exploring a what-if
+            if (isCurrentMonth || !getZigRateForMonth(viewYear, viewMonth)) { setZigRate(rate); saveZigRateForMonth(viewYear, viewMonth, rate); }
+          }}
           onClose={() => setShowSplitModal(false)}
           showToast={showToast}
         />

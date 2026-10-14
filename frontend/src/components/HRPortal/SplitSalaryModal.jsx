@@ -38,6 +38,14 @@ function IssueBox({ tone, title, children }) {
   );
 }
 
+function InfoBox({ children }) {
+  return (
+    <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: "#1e40af", fontFamily: FONT, lineHeight: 1.55 }}>
+      {children}
+    </div>
+  );
+}
+
 function Tile({ label, count, total, accent }) {
   return (
     <div style={{ flex: 1, background: "#eff6ff", borderRadius: 12, padding: "12px 14px" }}>
@@ -49,7 +57,7 @@ function Tile({ label, count, total, accent }) {
 }
 
 export default function SplitSalaryModal({
-  monthName, monthLabel, zigRate, activeFilters, loadRows, onSaveRate, onClose, showToast,
+  monthName, monthLabel, isPastMonth, zigRate, activeFilters, loadRows, onSaveRate, onClose, showToast,
 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState("");
@@ -178,6 +186,11 @@ export default function SplitSalaryModal({
             <IssueBox tone="amber" title="Filters are active — the files will be partial">
               Only employees matching: {activeFilters.join(" · ")}. Clear the filters first if you want everyone.
             </IssueBox>
+          )}
+          {isPastMonth && (
+            <InfoBox>
+              You're viewing <b>{monthLabel}</b>, a previous month. The totals below show what would be paid if that month's payroll were split this way. Downloading is optional, and a rate you type here won't replace that month's saved rate.
+            </InfoBox>
           )}
           {loading && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: "#64748b", fontFamily: FONT }}>Loading payroll…</div>}
           {error && <IssueBox tone="red" title="Something went wrong">{error}</IssueBox>}
