@@ -97,6 +97,23 @@ async function fetchAttendanceRecords(startStr, endStr) {
   return all;
 }
 
+// Monthly report: it only needs each day's status, so use the lightweight Mark
+// Register endpoint (plain DB values, no serializer) instead of pulling every full
+// record for the month - that heavy request returned 503 on the server.
+// Response: { records: { "<employeeId>": { "YYYY-MM-DD": { id, status } } } }
+async function fetchMonthStatuses(year, month1) {
+  const res = await apiFetch(`${API}/attendance/register/?year=${year}&month=${month1}`);
+  if (!res.ok) throw new Error(`Attendance request failed (${res.status})`);
+  const data = await res.json();
+  const out = [];
+  for (const [empId, days] of Object.entries(data.records || {})) {
+    for (const [date, rec] of Object.entries(days)) {
+      out.push({ employee: Number(empId), date, status: rec.status });
+    }
+  }
+  return out;
+}
+
 // Employees: use the list the HR portal already loaded; only fetch it if the
 // context has not finished loading yet.
 async function fetchEmployeesFallback() {
@@ -288,7 +305,9 @@ export default function ReportsPage({ showToast }) {
       const period = mod.resolvePeriod({ type: attType, date: attDate, year: attYear, month: attMonth });
 
       const [records, allEmployees, logo] = await Promise.all([
-        fetchAttendanceRecords(period.startStr, period.endStr),
+        attType === "monthly"
+          ? fetchMonthStatuses(attYear, attMonth + 1)
+          : fetchAttendanceRecords(period.startStr, period.endStr),
         ctxEmployees ? Promise.resolve(ctxEmployees) : fetchEmployeesFallback(),
         loadLogo(),
       ]);
