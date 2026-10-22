@@ -25,7 +25,7 @@
 import { jsPDF } from "jspdf";
 
 // ── Palette (blue family) ────────────────────────────────────────────────────
-const C = {
+export const C = {
   navy:    [10, 42, 94],
   primary: [14, 61, 130],
   mid:     [21, 87, 176],
@@ -46,7 +46,7 @@ const C = {
 };
 
 // Donut / ranked-bar colours, in order.
-const SLICES = [
+export const SLICES = [
   [10, 42, 94], [26, 111, 212], [125, 180, 235], [3, 105, 161],
   [186, 214, 245], [71, 102, 150], [56, 152, 200], [148, 163, 184],
 ];
@@ -66,23 +66,23 @@ const LINE_DOT = [255, 255, 255];
 const GENDER_LABELS = { M: "Male", F: "Female", O: "Other" };
 
 // ── A4 landscape geometry (mm) ───────────────────────────────────────────────
-const PW = 297, M = 10, CW = PW - 2 * M;
-const BOTTOM = 197; // nothing but the footer is drawn below this
+export const PW = 297, M = 10, CW = PW - 2 * M;
+export const BOTTOM = 197; // nothing but the footer is drawn below this
 
-const MONTHS = [
+export const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
 
 // ── Small helpers ────────────────────────────────────────────────────────────
 // jsPDF's built-in fonts only cover Latin-1, so anything else becomes "-".
-const clean = (s) => String(s ?? "").replace(/[^\x20-\xFF]/g, "-").trim();
+export const clean = (s) => String(s ?? "").replace(/[^\x20-\xFF]/g, "-").trim();
 
-const fill   = (doc, rgb) => doc.setFillColor(rgb[0], rgb[1], rgb[2]);
-const stroke = (doc, rgb) => doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
-const ink    = (doc, rgb) => doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+export const fill   = (doc, rgb) => doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+export const stroke = (doc, rgb) => doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+export const ink    = (doc, rgb) => doc.setTextColor(rgb[0], rgb[1], rgb[2]);
 
-function fitText(doc, text, maxW) {
+export function fitText(doc, text, maxW) {
   let t = clean(text);
   if (doc.getTextWidth(t) <= maxW) return t;
   while (t.length > 1 && doc.getTextWidth(t + "...") > maxW) t = t.slice(0, -1);
@@ -118,7 +118,7 @@ function makeMoney(currency, rate) {
 }
 
 // Round the top of an axis to a "nice" number and pick the tick step.
-function niceScale(max, ticks = 4) {
+export function niceScale(max, ticks = 4) {
   if (!(max > 0)) return { top: ticks, step: 1 };
   const raw = max / ticks;
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -167,7 +167,7 @@ function topWithOther(groups, max) {
 // Smooth curve through the points (Catmull-Rom converted to cubic Beziers).
 // Control-point heights are clamped to the plot area so the curve never
 // overshoots below the baseline or above the top of the chart.
-function drawSmoothCurve(doc, pts, minY, maxY) {
+export function drawSmoothCurve(doc, pts, minY, maxY) {
   if (pts.length < 2) return;
   const clampY = (v) => Math.min(maxY, Math.max(minY, v));
   const segs = [];
@@ -188,7 +188,7 @@ function drawSmoothCurve(doc, pts, minY, maxY) {
 
 // ── Drawing blocks ───────────────────────────────────────────────────────────
 
-function drawHeader(doc, { title, tag, period, currencyLabel, logo, compact }) {
+export function drawHeader(doc, { title, tag, period, currencyLabel, logo, compact }) {
   const h = compact ? 15 : 20;
   fill(doc, C.primary);
   doc.rect(0, 0, PW, h, "F");
@@ -248,7 +248,7 @@ function drawIcon(doc, x, y, color, glyph) {
   doc.text(glyph, x + 9.8, y + 13.1, { align: "center" });
 }
 
-function drawKpis(doc, y, kpis) {
+export function drawKpis(doc, y, kpis) {
   const gap = 4, w = (CW - gap * 3) / 4, h = 22;
   kpis.forEach((k, i) => {
     const x = M + i * (w + gap);
@@ -274,7 +274,7 @@ function drawKpis(doc, y, kpis) {
   return y + h;
 }
 
-function sectionTitle(doc, x, y, text) {
+export function sectionTitle(doc, x, y, text) {
   fill(doc, C.royal);
   doc.roundedRect(x, y - 3.2, 1.4, 4.2, 0.5, 0.5, "F");
   ink(doc, C.ink);
@@ -283,7 +283,7 @@ function sectionTitle(doc, x, y, text) {
   doc.text(text, x + 3.2, y);
 }
 
-function panel(doc, x, y, w, h) {
+export function panel(doc, x, y, w, h) {
   stroke(doc, C.border);
   doc.setLineWidth(0.3);
   fill(doc, C.white);
@@ -306,7 +306,7 @@ function drawSector(doc, cx, cy, r, a0, a1, rgb) {
 }
 
 // Donut + legend. items: [{ name, value }]
-function drawDonut(doc, { x, y, w, h, items, centerTop, centerBottom }) {
+export function drawDonut(doc, { x, y, w, h, items, centerTop, centerBottom }) {
   const total = items.reduce((s, i) => s + i.value, 0);
   const r = Math.min(h - 4, 46) / 2, cx = x + r + 4, cy = y + h / 2;
   if (total <= 0) {
@@ -468,7 +468,7 @@ function drawGroupedBars(doc, { x, y, w, h, cats, money }) {
 }
 
 // Ranked horizontal bars with a light-to-dark blue gradient by rank.
-function drawRankedBars(doc, { x, y, w, h, items, money }) {
+export function drawRankedBars(doc, { x, y, w, h, items, money }) {
   if (!items.length) return;
   const labelW = 42, valueW = 26;
   const rowH = Math.min(8, h / items.length);
@@ -493,7 +493,7 @@ function drawRankedBars(doc, { x, y, w, h, items, money }) {
 }
 
 // Table with header, banded rows, total row and automatic page continuation.
-function drawTable(doc, { x, y, cols, rows, total, rowH = 5.6, headH = 6.6, onNewPage }) {
+export function drawTable(doc, { x, y, cols, rows, total, rowH = 5.6, headH = 6.6, onNewPage }) {
   const totalW = cols.reduce((s, c) => s + c.w, 0);
 
   const head = (yy) => {
@@ -503,6 +503,7 @@ function drawTable(doc, { x, y, cols, rows, total, rowH = 5.6, headH = 6.6, onNe
     let cx = x;
     cols.forEach((c) => {
       if (c.align === "right") doc.text(c.label, cx + c.w - 2.5, yy + 4.4, { align: "right" });
+      else if (c.align === "center") doc.text(c.label, cx + c.w / 2, yy + 4.4, { align: "center" });
       else doc.text(c.label, cx + 2.5, yy + 4.4);
       cx += c.w;
     });
@@ -520,6 +521,7 @@ function drawTable(doc, { x, y, cols, rows, total, rowH = 5.6, headH = 6.6, onNe
       const txt = String(c.get(r));
       const ty = yy + (opts.total ? rowH + 0.6 : rowH) / 2 + 1.2;
       if (c.align === "right") doc.text(txt, cx + c.w - 2.5, ty, { align: "right" });
+      else if (c.align === "center") doc.text(txt, cx + c.w / 2, ty, { align: "center" });
       else doc.text(fitText(doc, txt, c.w - 5), cx + 2.5, ty);
       cx += c.w;
     });
@@ -543,7 +545,7 @@ function drawTable(doc, { x, y, cols, rows, total, rowH = 5.6, headH = 6.6, onNe
   return yy;
 }
 
-function drawFooters(doc, { company, generatedBy, generatedAt }) {
+export function drawFooters(doc, { company, generatedBy, generatedAt }) {
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);

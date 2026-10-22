@@ -8,7 +8,10 @@
 //   Finance    -> live. Pulls payroll rows from /api/payroll/computed/ for the
 //                 chosen month and builds the 2-page PDF (utils/financeReportPdf.js).
 //   Employee   -> placeholder (coming soon)
-//   Attendance -> placeholder (coming soon)
+//   Attendance -> live. Daily / weekly / monthly. Pulls the employees (from the HR
+//                 portal context) and the attendance records for the chosen period
+//                 from /api/attendance/ and builds the PDF in
+//                 utils/attendanceReportPdf.js (same look as the Finance report).
 
 import { useState } from "react";
 import { apiFetch } from "../../utils/auth";
@@ -70,6 +73,43 @@ async function fetchAllPayrollRows(year, month) {
     p += 1;
   }
   return all;
+}
+
+// Attendance records for a date range. The list endpoint is paginated (max 20,000
+// per page), so keep following `next` until there are no more pages.
+async function fetchAttendanceRecords(startStr, endStr) {
+  const PAGE_SIZE = 5000;
+  let all = [];
+  let p = 1;
+  while (true) {
+    const params = new URLSearchParams({
+      date_after: startStr, date_before: endStr,
+      page: String(p), page_size: String(PAGE_SIZE),
+    });
+    const res = await apiFetch(`${API}/attendance/?${params.toString()}`);
+    if (!res.ok) throw new Error(`Attendance request failed (${res.status})`);
+    const data = await res.json();
+    if (Array.isArray(data)) return data;
+    all = all.concat(data.results || []);
+    if (!data.next) break;
+    p += 1;
+  }
+  return all;
+}
+
+// Employees: use the list the HR portal already loaded; only fetch it if the
+// context has not finished loading yet.
+async function fetchEmployeesFallback() {
+  const res = await apiFetch(`${API}/employees/`);
+  if (!res.ok) throw new Error(`Employees request failed (${res.status})`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : data.results || [];
+}
+
+// Today as YYYY-MM-DD in LOCAL time (toISOString would use UTC and can be a day off).
+function localToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // Logo → base64 so jsPDF can embed it. The report still builds without it.
@@ -174,7 +214,7 @@ function ReportCard({ icon, title, description, bullets, badge, children, footer
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ReportsPage({ showToast }) {
-  const { user } = useHRPortal();
+  const { user, employees: ctxEmployees } = useHRPortal();
   const now = new Date();
 
   const [month,    setMonth]    = useState(now.getMonth());     // 0-11
@@ -182,6 +222,13 @@ export default function ReportsPage({ showToast }) {
   const [currency, setCurrency] = useState("USD");
   const [zigRate,  setZigRate]  = useState(() => getZigRateForMonth(now.getFullYear(), now.getMonth()));
   const [busy,     setBusy]     = useState(false);
+
+  // Attendance report: its own period controls so the Finance selectors are untouched.
+  const [attType,  setAttType]  = useState("daily");            // daily | weekly | monthly
+  const [attDate,  setAttDate]  = useState(localToday);         // daily date / any day in the week
+  const [attMonth, setAttMonth] = useState(now.getMonth());     // 0-11
+  const [attYear,  setAttYear]  = useState(now.getFullYear());
+  const [attBusy,  setAttBusy]  = useState(false);
 
   // Switching month/year → recall that month's stored ZiG rate.
   const onMonthChange = (m) => { setMonth(m); setZigRate(getZigRateForMonth(year, m)); };
@@ -225,6 +272,49 @@ export default function ReportsPage({ showToast }) {
       showToast("Could not generate the finance report. Please try again.", "err");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const downloadAttendanceReport = async () => {
+    if (attBusy) return;
+    if (attType !== "monthly" && !attDate) {
+      showToast("Choose a date first.", "err");
+      return;
+    }
+    setAttBusy(true);
+    try {
+      // Load the PDF code + logo only when needed (keeps the main bundle small).
+      const mod = await import("../../utils/attendanceReportPdf");
+      const period = mod.resolvePeriod({ type: attType, date: attDate, year: attYear, month: attMonth });
+
+      const [records, allEmployees, logo] = await Promise.all([
+        fetchAttendanceRecords(period.startStr, period.endStr),
+        ctxEmployees ? Promise.resolve(ctxEmployees) : fetchEmployeesFallback(),
+        loadLogo(),
+      ]);
+
+      const employees = allEmployees.filter((e) => e.status === "employed");
+      if (!employees.length) {
+        showToast("No employees found to report on.", "err");
+        return;
+      }
+      if (!records.length) {
+        showToast(`No attendance has been marked for ${period.label}.`, "err");
+        return;
+      }
+
+      const { doc, filename } = mod.buildAttendanceReport({
+        employees, records, period,
+        generatedBy: user?.full_name || user?.username || "",
+        logo,
+      });
+      doc.save(filename);
+      showToast("Attendance report downloaded.");
+    } catch (err) {
+      console.error("Attendance report failed:", err);
+      showToast("Could not generate the attendance report. Please try again.", "err");
+    } finally {
+      setAttBusy(false);
     }
   };
 
@@ -331,11 +421,16 @@ export default function ReportsPage({ showToast }) {
           </div>
         </ReportCard>
 
-        {/* ── Attendance report (placeholder) ── */}
+        {/* ── Attendance report (live) ── */}
         <ReportCard
-          badge="Coming soon"
           title="Attendance Report"
-          description="Attendance rates, lateness and absences by department and site."
+          description="Attendance rates, lateness and absences by department, site, gender and job title."
+          bullets={[
+            "Daily, weekly or monthly - pick the period",
+            "Totals: attendance rate, present, late, absent",
+            "Breakdowns by department, site, gender and job title",
+            "Last pages: employee-by-employee register",
+          ]}
           icon={
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
               <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -344,11 +439,59 @@ export default function ReportsPage({ showToast }) {
             </svg>
           }
           footer={
-            <button type="button" disabled style={disabledBtn}>
-              <DownloadIcon /> Download Attendance Report
+            <button type="button" onClick={downloadAttendanceReport} disabled={attBusy} style={{
+              ...primaryBtn,
+              background: attBusy ? "#94a3b8" : primaryBtn.background,
+              cursor: attBusy ? "wait" : "pointer",
+              boxShadow: attBusy ? "none" : primaryBtn.boxShadow,
+            }}>
+              {attBusy ? (
+                <>
+                  <span style={{
+                    width: 14, height: 14, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.4)",
+                    borderTopColor: "#fff", animation: "spin 0.7s linear infinite", display: "inline-block",
+                  }} />
+                  Preparing report...
+                </>
+              ) : (
+                <><DownloadIcon /> Download Attendance Report (PDF)</>
+              )}
             </button>
           }
-        />
+        >
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Field label="Report type" style={{ gridColumn: "1 / -1" }}>
+              <select value={attType} onChange={(e) => setAttType(e.target.value)} style={selectStyle} disabled={attBusy}>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly (Mon - Sun)</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </Field>
+            {attType === "monthly" ? (
+              <>
+                <Field label="Month">
+                  <select value={attMonth} onChange={(e) => setAttMonth(Number(e.target.value))} style={selectStyle} disabled={attBusy}>
+                    {MONTH_NAMES.map((m, i) => <option key={m} value={i}>{m}</option>)}
+                  </select>
+                </Field>
+                <Field label="Year">
+                  <select value={attYear} onChange={(e) => setAttYear(Number(e.target.value))} style={selectStyle} disabled={attBusy}>
+                    {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </Field>
+              </>
+            ) : (
+              <Field label={attType === "weekly" ? "Any day in the week" : "Date"} style={{ gridColumn: "1 / -1" }}>
+                <input
+                  type="date" value={attDate} disabled={attBusy}
+                  max={localToday()}
+                  onChange={(e) => setAttDate(e.target.value)}
+                  style={{ ...selectStyle, cursor: "text" }}
+                />
+              </Field>
+            )}
+          </div>
+        </ReportCard>
       </div>
     </div>
   );
