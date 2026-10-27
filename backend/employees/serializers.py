@@ -148,5 +148,5 @@ class EmployeeListSerializer(serializers.ModelSerializer):
             'job_title', 'department', 'department_name', 'site', 'site_name',
             'gender', 'phone_number', 'email', 'address',
             'status', 'profile_picture', 'employment_type',
-            'date_joined',
+            'date_joined', 'contract_end', 'status_changed_at',
         )

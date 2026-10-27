@@ -85,7 +85,21 @@ def is_working_day(date_str):
     return date_str not in holidays
 
 
+# Months where pay is divided over a fixed number of days instead of the usual
+# weekdays-minus-holidays count. Key = (year, month 1-12).
+#   October 2026: pay is divided over 26 days. Weekend / holiday days worked are
+#   credited against missing days (see compute_payroll_row), so whoever works
+#   through weekends/holidays still reaches a full 26. Keep this in sync with
+#   frontend/src/utils/workingDaysOverride.js.
+WORKING_DAYS_OVERRIDES = {
+    (2026, 10): 26,
+}
+
+
 def get_working_days_in_month(year, month0):
+    override = WORKING_DAYS_OVERRIDES.get((year, month0 + 1))
+    if override is not None:
+        return override
     days_in_month = monthrange(year, month0 + 1)[1]
     holidays = get_zw_public_holidays(year, month0)
     count = 0

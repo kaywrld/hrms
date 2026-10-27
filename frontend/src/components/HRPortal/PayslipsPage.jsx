@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { apiFetch } from "../../utils/auth";
 import { useHRPortal } from "../../context/HRPortalContext";
+import { workingDaysOverride } from "../../utils/workingDaysOverride";
 
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
@@ -80,6 +81,8 @@ function isWorkingDay(dateStr) {
   return !getZwHolidays(dt.getFullYear(), dt.getMonth()).has(dateStr);
 }
 function getWorkingDays(year, month) {
+  const override = workingDaysOverride(year, month);
+  if (override !== null) return override;
   let n=0; const days=new Date(year,month+1,0).getDate();
   for(let d=1;d<=days;d++){
     const s=`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;

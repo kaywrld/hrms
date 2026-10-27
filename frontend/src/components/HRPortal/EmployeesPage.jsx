@@ -16,6 +16,7 @@ import { useHRPortal } from "../../context/HRPortalContext";
 import EmployeeDetailView from "./EmployeeDetailView";
 import { ZW_BANKS } from "../../utils/banks";
 import * as XLSX from "xlsx";
+import { workingDaysOverride } from "../../utils/workingDaysOverride";
 
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
@@ -66,6 +67,8 @@ function getZwPublicHolidays(year, month) {
 }
 
 function getWorkingDaysInMonth(year, month) {
+  const override = workingDaysOverride(year, month);
+  if (override !== null) return override;
   const holidays = getZwPublicHolidays(year, month);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   let count = 0;
