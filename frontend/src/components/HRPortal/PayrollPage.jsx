@@ -656,6 +656,11 @@ async function downloadExcel(rows, filename, currency, zigRate) {
   ];
   const finalPayColIdx = columns.findIndex(c => c.key === "finalPay") + 1;
 
+  
+  // Column letters by key (A, B, C …) so the formulas below can point at the
+  // right cells even if the column order is changed later.
+  const L = Object.fromEntries(columns.map((c, i) => [c.key, String.fromCharCode(65 + i)]));
+
   const FONT_NAME = "Calibri";
   const HEADER_BG = "FF0E3D82";
   const TOTAL_FILL = "FFE7EEF9";
@@ -674,6 +679,7 @@ async function downloadExcel(rows, filename, currency, zigRate) {
   const wb = new ExcelJS.Workbook();
   wb.creator = "JECCA Engineering HRMS";
   wb.created = new Date();
+  wb.calcProperties.fullCalcOnLoad = true;   // recalculate every formula when the file is opened
 
   // Summary sheet first so it lands as the first tab (only when there's
   // actually more than one site to summarize).
@@ -689,6 +695,17 @@ async function downloadExcel(rows, filename, currency, zigRate) {
   }
 
   function buildRow(ws, r) {
+    const n = ws.rowCount + 1;                       // the row this data is about to land on
+    const ref = (key) => `${L[key]}${n}`;
+    const netVal   = Number(r.netSalary.toFixed(2));
+    const finalVal = Number(r.finalPay.toFixed(2));
+    // Plain formulas only. Rounding and the "never below 0" rule stay in the app:
+    // the rare row where that rule applies (or has no working days) is written as a value.
+    const netFormula = r.isDaily
+      ? `${ref("baseOrDaily")}*${ref("daysAttended")}`
+      : (r.workingDays > 0 ? `${ref("daysAttended")}/${ref("workingDays")}*${ref("baseOrDaily")}` : null);
+    const finalFormula = (netVal - Number(r.deduction.toFixed(2)) + Number(r.bonus.toFixed(2))) >= 0
+      ? `${ref("netSalary")}-${ref("deduction")}+${ref("bonus")}` : null;
     const row = ws.addRow({
       fullName: r.fullName,
       jobTitle: r.jobTitle,
@@ -699,11 +716,12 @@ async function downloadExcel(rows, filename, currency, zigRate) {
       bankAccount: r.bankAccount,
       daysAttended: r.daysAttended,
       workingDays: r.workingDays,
-      baseOrDaily: Number((r.isDaily ? r.dailyRate : r.baseSalary).toFixed(2)),
-      netSalary: Number(r.netSalary.toFixed(2)),
+      // kept to 6 decimals (not 2) so a ZiG-converted rate doesn't lose cents in the formulas below
+      baseOrDaily: Number((r.isDaily ? r.dailyRate : r.baseSalary).toFixed(6)),
+      netSalary: netFormula ? { formula: netFormula, result: netVal } : netVal,
       deduction: Number(r.deduction.toFixed(2)),
       bonus: Number(r.bonus.toFixed(2)),
-      finalPay: Number(r.finalPay.toFixed(2)),
+      finalPay: finalFormula ? { formula: finalFormula, result: finalVal } : finalVal,
     });
     row.font = { name: FONT_NAME, size: 10 };
     columns.forEach((c, i) => {
@@ -715,6 +733,9 @@ async function downloadExcel(rows, filename, currency, zigRate) {
     });
     return row;
   }
+
+  // The number each total column should add up to (same rounding as the cells).
+  const colValue = (key, r) => key === "daysAttended" ? r.daysAttended : Number(r[key].toFixed(2));
 
   const siteSummary = []; // { site, employeeCount, totalRef }
 
@@ -742,7 +763,8 @@ async function downloadExcel(rows, filename, currency, zigRate) {
       if (!c.total) return;
       const colLetter = ws.getColumn(i + 1).letter;
       const cell = totalRow.getCell(i + 1);
-      cell.value = { formula: `SUM(${colLetter}${firstDataRow}:${colLetter}${lastDataRow})` };
+      const colTotal = Number(siteRows.reduce((sum, r) => sum + colValue(c.key, r), 0).toFixed(2));
+      cell.value = { formula: `SUM(${colLetter}${firstDataRow}:${colLetter}${lastDataRow})`, result: colTotal };
       if (c.money) cell.numFmt = "#,##0.00";
       cell.alignment = { horizontal: "right" };
     });
@@ -770,7 +792,9 @@ async function downloadExcel(rows, filename, currency, zigRate) {
       siteSummary.push({
         site,
         employeeCount: siteRows.length,
+        countRef: `COUNTA('${sheetName}'!A${firstDataRow}:A${lastDataRow})`,
         totalRef: `'${sheetName}'!${finalPayColLetter}${totalRowIdx}`,
+        totalVal: Number(siteRows.reduce((sum, r) => sum + colValue("finalPay", r), 0).toFixed(2)),
       });
     }
   });
@@ -789,7 +813,11 @@ async function downloadExcel(rows, filename, currency, zigRate) {
     });
 
     siteSummary.forEach(s => {
-      const row = summaryWs.addRow({ site: s.site, count: s.employeeCount, total: { formula: s.totalRef } });
+      const row = summaryWs.addRow({
+        site: s.site,
+        count: { formula: s.countRef, result: s.employeeCount },
+        total: { formula: s.totalRef, result: s.totalVal },
+      });
       row.font = { name: FONT_NAME, size: 10 };
       row.getCell(3).numFmt = "#,##0.00";
       row.getCell(3).alignment = { horizontal: "right" };
@@ -799,8 +827,8 @@ async function downloadExcel(rows, filename, currency, zigRate) {
     const lastSummaryRow = summaryWs.rowCount;
     const grandRow = summaryWs.addRow({
       site: "TOTAL — ALL SITES",
-      count: { formula: `SUM(B${firstSummaryRow}:B${lastSummaryRow})` },
-      total: { formula: `SUM(C${firstSummaryRow}:C${lastSummaryRow})` },
+      count: { formula: `SUM(B${firstSummaryRow}:B${lastSummaryRow})`, result: siteSummary.reduce((a, s) => a + s.employeeCount, 0) },
+      total: { formula: `SUM(C${firstSummaryRow}:C${lastSummaryRow})`, result: Number(siteSummary.reduce((a, s) => a + s.totalVal, 0).toFixed(2)) },
     });
     grandRow.getCell(3).numFmt = "#,##0.00";
     grandRow.getCell(3).alignment = { horizontal: "right" };
