@@ -1055,7 +1055,7 @@ function EmployeeFormModal({ employee, departments, sites, existingNumbers, allE
                 Pay Calculation — {new Date(currentYear, currentMonth).toLocaleString("en-GB", { month: "long", year: "numeric" })}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                {[["Monthly Salary", fmt$(salary)], ["Working Days", `${workingDaysThisMonth} days`], ["Daily Rate", fmt$(dailyRate)], ["Note", "Excl. weekends & ZW holidays"]].map(([l, v], i) => (
+                {[["Monthly Salary", fmt$(salary)], ["Working Days", `${workingDaysThisMonth} days`], ["Daily Rate", fmt$(dailyRate)], ["Note", workingDaysOverride(currentYear, currentMonth) !== null ? "Fixed for this month" : "Excl. weekends & ZW holidays"]].map(([l, v], i) => (
                   <div key={i}>
                     <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3, fontFamily: "'DM Sans',sans-serif" }}>{l}</div>
                     <div style={{ fontSize: i === 2 ? 18 : 13, fontWeight: i === 2 ? 700 : 500, color: "#0a2a5e", fontFamily: i === 2 ? "'Playfair Display',serif" : "'DM Sans',sans-serif" }}>{v}</div>
@@ -2376,7 +2376,7 @@ export default function HREmployeesPage({ showToast, isHRM, onEditEmployee }) {
           {/* Month info bar */}
           <div className="emp-month-bar" style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
             <div style={{ fontSize: 12, color: "#1557b0", fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
-              📅 {monthLabel} — {workingDaysThisMonth} working days (excl. weekends &amp; Zimbabwe public holidays)
+              📅 {monthLabel} — {workingDaysThisMonth} working days ({workingDaysOverride(currentYear, currentMonth) !== null ? "fixed for this month" : "excl. weekends & Zimbabwe public holidays"})
             </div>
             <div style={{ fontSize: 11, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif" }}>
               Sat/Sun/public holiday attendance is tracked but not counted toward working days

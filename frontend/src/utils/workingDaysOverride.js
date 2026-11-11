@@ -10,8 +10,9 @@
 // backend/payroll/payroll_calc.py (WORKING_DAYS_OVERRIDES).
 
 export const WORKING_DAYS_OVERRIDES = {
-    "2026-10": 26,
-  };
+  "2026-10": 26,
+  "2026-11": 26,
+};
   
   // month0 is 0-based (Jan = 0), like JS Date. Returns null when there is no override.
   export function workingDaysOverride(year, month0) {

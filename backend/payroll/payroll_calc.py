@@ -93,6 +93,7 @@ def is_working_day(date_str):
 #   frontend/src/utils/workingDaysOverride.js.
 WORKING_DAYS_OVERRIDES = {
     (2026, 10): 26,
+    (2026, 11): 26,
 }
 
 

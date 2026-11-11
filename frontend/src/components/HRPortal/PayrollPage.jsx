@@ -1460,7 +1460,7 @@ export default function HRPayrollPage({ showToast, onManageLoans }) {
               {monthLabel}
             </div>
             <div className="pr-month-sub" style={{ fontSize: 11, color: "#94a3b8", fontFamily: "'DM Sans',sans-serif", marginTop: 2 }}>
-              {workingDays} working days · excl. weekends & ZW holidays
+              {workingDays} working days · {workingDaysOverride(viewYear, viewMonth) !== null ? "fixed for this month" : "excl. weekends & ZW holidays"}
               {isCurrentMonth && (
                 <span style={{ marginLeft: 6, background: "#dcfce7", color: "#166534", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>
                   Current Month

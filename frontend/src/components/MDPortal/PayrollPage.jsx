@@ -65,6 +65,8 @@ function getZwHolidays(year, month) {
   return set;
 }
 function workingDaysInMonth(year, month) {
+  const fixed = fixedWorkingDays(year, month);
+  if (fixed !== null) return fixed;
   const holidays = getZwHolidays(year, month);
   const end = new Date(year, month+1, 0).getDate();
   let c = 0;
